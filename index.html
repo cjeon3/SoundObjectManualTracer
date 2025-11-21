@@ -66,7 +66,6 @@
                     >
                     <p class="text-xs text-gray-500 mt-2">
                         Deploy the Google Apps Script from your Sheet (reading "Data" tab) and paste the Web App URL here. 
-                        <a href="SETUP_INSTRUCTIONS.md" target="_blank" class="text-blue-600 underline">See setup instructions</a>
                     </p>
                 </div>
                 
@@ -107,6 +106,32 @@
         <div id="data-summary" class="hidden bg-white p-6 rounded-xl shadow-lg mb-6">
             <h2 class="text-2xl font-bold text-gray-800 mb-4">Data Summary</h2>
             <div id="summary-content" class="grid grid-cols-1 md:grid-cols-4 gap-4"></div>
+        </div>
+        
+        <!-- Export Combined Image Button -->
+        <div id="export-combined-container" class="hidden bg-white p-6 rounded-xl shadow-lg mb-6">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">Export Options</h2>
+            <div class="flex gap-3 flex-wrap">
+                <button 
+                    id="export-combined-btn"
+                    class="px-6 py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition-all shadow-md flex items-center gap-2"
+                >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                    Download Combined Image (All Frequencies)
+                </button>
+                
+                <button 
+                    id="export-stats-btn"
+                    class="px-6 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-all shadow-md flex items-center gap-2"
+                >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    Export Statistics to Google Sheets
+                </button>
+            </div>
         </div>
         
         <!-- Visualizations -->
@@ -171,6 +196,8 @@
         
         let sheetsApiUrl = '';
         let sheetsData = null;
+        let generatedCanvases = {};
+        let statisticsData = [];
         
         // Load saved URL
         window.addEventListener('DOMContentLoaded', () => {
@@ -304,6 +331,8 @@
                 // Generate visualizations
                 const vizGrid = document.getElementById('visualization-grid');
                 vizGrid.innerHTML = '';
+                generatedCanvases = {};
+                statisticsData = [];
                 
                 let imagesGenerated = 0;
                 
@@ -314,6 +343,7 @@
                     if (redData.length === 0 && blueData.length === 0) return;
                     
                     const canvas = drawVisualization(freq, redData, blueData);
+                    generatedCanvases[freq] = canvas;
                     imagesGenerated++;
                     
                     const container = document.createElement('div');
@@ -357,6 +387,12 @@
                     // Red statistics
                     if (redData.length > 0) {
                         const stats = calculateStats(redData);
+                        statisticsData.push({
+                            frequency: freq,
+                            phase: 'Red (In-Phase)',
+                            ...stats
+                        });
+                        
                         const row = document.createElement('tr');
                         row.className = 'hover:bg-gray-50';
                         row.innerHTML = `
@@ -376,6 +412,12 @@
                     // Blue statistics
                     if (blueData.length > 0) {
                         const stats = calculateStats(blueData);
+                        statisticsData.push({
+                            frequency: freq,
+                            phase: 'Blue (Out-of-Phase)',
+                            ...stats
+                        });
+                        
                         const row = document.createElement('tr');
                         row.className = 'hover:bg-gray-50';
                         row.innerHTML = `
@@ -422,6 +464,7 @@
                 document.getElementById('data-summary').classList.remove('hidden');
                 document.getElementById('visualization-container').classList.remove('hidden');
                 document.getElementById('statistics-container').classList.remove('hidden');
+                document.getElementById('export-combined-container').classList.remove('hidden');
                 
                 setTimeout(() => {
                     document.getElementById('progress-container').classList.add('hidden');
@@ -434,6 +477,129 @@
                 document.getElementById('progress-container').classList.add('hidden');
             }
         });
+        
+        // Export combined image
+        document.getElementById('export-combined-btn').addEventListener('click', function() {
+            if (Object.keys(generatedCanvases).length === 0) {
+                alert('No images to combine. Please generate visualizations first.');
+                return;
+            }
+            
+            const btn = this;
+            btn.disabled = true;
+            btn.textContent = '⏳ Creating combined image...';
+            
+            setTimeout(() => {
+                try {
+                    const combinedCanvas = createCombinedImage();
+                    
+                    const link = document.createElement('a');
+                    link.download = 'sound_object_all_frequencies_combined.png';
+                    link.href = combinedCanvas.toDataURL();
+                    link.click();
+                    
+                    btn.disabled = false;
+                    btn.innerHTML = `
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                        </svg>
+                        Download Combined Image (All Frequencies)
+                    `;
+                } catch (err) {
+                    console.error('Error creating combined image:', err);
+                    alert('Error creating combined image: ' + err.message);
+                    btn.disabled = false;
+                    btn.innerHTML = 'Download Combined Image (All Frequencies)';
+                }
+            }, 100);
+        });
+        
+        // Export statistics to Google Sheets
+        document.getElementById('export-stats-btn').addEventListener('click', async function() {
+            if (statisticsData.length === 0) {
+                alert('No statistics to export. Please generate visualizations first.');
+                return;
+            }
+            
+            const btn = this;
+            btn.disabled = true;
+            btn.textContent = '⏳ Exporting to Google Sheets...';
+            
+            try {
+                const response = await fetch(sheetsApiUrl + '?action=exportStatistics', {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        statistics: statisticsData,
+                        timestamp: new Date().toISOString()
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+                
+                alert(`✅ Statistics exported successfully to sheet: "${result.sheetName}"`);
+                
+            } catch (err) {
+                console.error('Error exporting statistics:', err);
+                alert('Error exporting statistics: ' + err.message + '\n\nMake sure the Apps Script has been updated with the exportStatistics function.');
+            }
+            
+            btn.disabled = false;
+            btn.innerHTML = `
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                Export Statistics to Google Sheets
+            `;
+        });
+        
+        // Create combined image (3 rows x 4 columns)
+        function createCombinedImage() {
+            const cols = 4;
+            const rows = 3;
+            const padding = 20;
+            const imageWidth = CANVAS_SIZE;
+            const imageHeight = CANVAS_SIZE;
+            
+            const combinedWidth = (cols * imageWidth) + ((cols + 1) * padding);
+            const combinedHeight = (rows * imageHeight) + ((rows + 1) * padding);
+            
+            const combinedCanvas = document.createElement('canvas');
+            combinedCanvas.width = combinedWidth;
+            combinedCanvas.height = combinedHeight;
+            const ctx = combinedCanvas.getContext('2d');
+            
+            // White background
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, combinedWidth, combinedHeight);
+            
+            // Draw each frequency canvas
+            const frequencies = Object.keys(generatedCanvases).map(f => parseFloat(f)).sort((a, b) => a - b);
+            
+            frequencies.forEach((freq, index) => {
+                const canvas = generatedCanvases[freq];
+                const col = index % cols;
+                const row = Math.floor(index / cols);
+                
+                const x = padding + (col * (imageWidth + padding));
+                const y = padding + (row * (imageHeight + padding));
+                
+                ctx.drawImage(canvas, x, y);
+            });
+            
+            return combinedCanvas;
+        }
         
         // Calculate statistics
         function calculateStats(dataArray) {
@@ -512,15 +678,15 @@
             // Draw 3-unit reference circle (solid black)
             ctx.beginPath();
             ctx.arc(center, center, BACKGROUND_CIRCLE_RADIUS_UNITS * scale, 0, 2 * Math.PI);
-            ctx.strokeStyle = '#000000';  // Black
-            ctx.lineWidth = 1;  // Thin
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1;
             ctx.stroke();
             
             // Helper function to draw individual participant shapes in gray
             function drawGrayShapes(dataArray) {
-                ctx.strokeStyle = '#9ca3af';  // Slightly darker gray
+                ctx.strokeStyle = '#9ca3af';
                 ctx.lineWidth = 1;
-                ctx.globalAlpha = 0.5;  // Slightly more opaque (was 0.4)
+                ctx.globalAlpha = 0.5;
                 
                 dataArray.forEach(shape => {
                     const x = center + (shape.centroid.x * scale);
@@ -572,10 +738,10 @@
             
             // Draw averaged circles on top
             if (blueData.length > 0) {
-                drawAveragedCircle(blueData, '#3b82f6', true);  // Blue, dashed
+                drawAveragedCircle(blueData, '#3b82f6', true);
             }
             if (redData.length > 0) {
-                drawAveragedCircle(redData, '#dc2626', false);  // Red, solid
+                drawAveragedCircle(redData, '#dc2626', false);
             }
             
             // Title at top
