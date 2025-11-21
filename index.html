@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sound Object Sheets Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: ui-sans-serif, system-ui, sans-serif;
+            background-color: #f3f4f6;
+        }
+        
+        .canvas-container {
+            background: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        .analysis-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-3xl lg:text-4xl font-extrabold text-blue-800 mb-2">
+                Sound Object Sheets Viewer
+                <span class="inline-block ml-2 px-3 py-1 text-xs font-bold bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-full shadow-lg">📊 DATA MODE</span>
+            </h1>
+            <p class="text-lg sm:text-xl font-semibold text-gray-600">UCI Hearing & Speech Lab</p>
+            <p class="text-sm text-gray-500 mt-2">View averaged shapes from Google Sheets data</p>
+        </header>
+        
+        <!-- Configuration -->
+        <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+            <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+                Google Sheets Configuration
+            </h2>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                        Google Apps Script Web App URL
+                    </label>
+                    <input 
+                        type="text" 
+                        id="sheets-api-url" 
+                        placeholder="https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec"
+                        class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    >
+                    <p class="text-xs text-gray-500 mt-2">
+                        Deploy the Google Apps Script from your Sheet and paste the Web App URL here. 
+                        <a href="SETUP_INSTRUCTIONS.md" target="_blank" class="text-blue-600 underline">See setup instructions</a>
+                    </p>
+                </div>
+                
+                <div class="flex gap-3">
+                    <button 
+                        id="test-connection-btn"
+                        class="px-6 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-all shadow-md"
+                    >
+                        🧪 Test Connection
+                    </button>
+                    
+                    <button 
+                        id="fetch-data-btn"
+                        disabled
+                        class="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all shadow-md"
+                    >
+                        📊 Fetch Data & Generate Visualizations
+                    </button>
+                </div>
+                
+                <div id="connection-status" class="text-sm"></div>
+            </div>
+        </div>
+        
+        <!-- Progress -->
+        <div id="progress-container" class="hidden bg-white p-6 rounded-xl shadow-lg mb-6">
+            <div class="mb-2 flex justify-between items-center">
+                <h3 class="text-lg font-bold text-gray-800">Processing</h3>
+                <span id="progress-percentage" class="text-sm font-mono font-bold text-green-600">0%</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                <div id="progress-bar" class="h-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full transition-all" style="width: 0%"></div>
+            </div>
+            <p id="progress-text" class="mt-2 text-sm text-gray-600 font-semibold"></p>
+        </div>
+        
+        <!-- Data Summary -->
+        <div id="data-summary" class="hidden bg-white p-6 rounded-xl shadow-lg mb-6">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">Data Summary</h2>
+            <div id="summary-content" class="grid grid-cols-1 md:grid-cols-4 gap-4"></div>
+        </div>
+        
+        <!-- Visualizations -->
+        <div id="visualization-container" class="hidden mb-6">
+            <div class="bg-white p-6 rounded-xl shadow-lg mb-4">
+                <h2 class="text-2xl font-bold text-gray-800 mb-2">Averaged Shape Visualizations</h2>
+                <p class="text-sm text-gray-600 mb-2">
+                    Circles represent shapes based on centroid and area from Google Sheets data
+                </p>
+                <p class="text-xs text-gray-500">
+                    Semi-transparent circles = individual participants • Solid outline = average
+                </p>
+            </div>
+            <div id="visualization-grid" class="analysis-grid"></div>
+        </div>
+        
+        <!-- Statistics -->
+        <div id="statistics-container" class="hidden bg-white p-6 rounded-xl shadow-lg mb-6">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">Statistical Summary</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gradient-to-r from-green-50 to-emerald-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Frequency</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Phase</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">N</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Mean Area</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">SD Area</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Mean Radius</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">SD Radius</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Mean X</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Mean Y</th>
+                        </tr>
+                    </thead>
+                    <tbody id="statistics-body" class="bg-white divide-y divide-gray-200"></tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <footer class="text-center text-sm text-gray-500 mt-8 pb-4">
+            <p class="font-semibold">UCI Hearing & Speech Lab - Sound Object Sheets Viewer</p>
+            <p class="mt-1">Data-driven visualizations from Google Sheets</p>
+        </footer>
+    </div>
+    
+    <script>
+        // Configuration
+        const CANVAS_SIZE = 600;
+        const UNIT_RANGE = 10;
+        const SCALE_FACTOR = CANVAS_SIZE / (2 * UNIT_RANGE);
+        const BACKGROUND_CIRCLE_RADIUS_UNITS = 3;
+        const FREQUENCIES = [31, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000];
+        
+        let sheetsApiUrl = '';
+        let sheetsData = null;
+        
+        // Load saved URL
+        window.addEventListener('DOMContentLoaded', () => {
+            const saved = localStorage.getItem('sheetsApiUrl');
+            if (saved) {
+                document.getElementById('sheets-api-url').value = saved;
+                sheetsApiUrl = saved;
+            }
+        });
+        
+        // Update progress
+        function updateProgress(percentage, message) {
+            const container = document.getElementById('progress-container');
+            const bar = document.getElementById('progress-bar');
+            const text = document.getElementById('progress-text');
+            const pct = document.getElementById('progress-percentage');
+            
+            container.classList.remove('hidden');
+            bar.style.width = `${percentage}%`;
+            text.textContent = message;
+            pct.textContent = `${Math.round(percentage)}%`;
+        }
+        
+        function showError(message) {
+            const status = document.getElementById('connection-status');
+            status.innerHTML = `<span class="text-red-600 font-semibold">❌ Error: ${message}</span>`;
+        }
+        
+        // Test connection
+        document.getElementById('test-connection-btn').addEventListener('click', async function() {
+            const btn = this;
+            const status = document.getElementById('connection-status');
+            const urlInput = document.getElementById('sheets-api-url');
+            const url = urlInput.value.trim();
+            
+            if (!url) {
+                status.innerHTML = '<span class="text-red-600">❌ Please enter a URL</span>';
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.textContent = '🔄 Testing...';
+            status.innerHTML = '<span class="text-gray-600">Connecting...</span>';
+            
+            try {
+                const response = await fetch(url + '?action=getSummary', {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                sheetsApiUrl = url;
+                localStorage.setItem('sheetsApiUrl', url);
+                
+                status.innerHTML = `
+                    <span class="text-green-600 font-semibold">
+                        ✅ Connected successfully!<br>
+                        Found ${data.totalShapes} shapes from ${data.uniqueParticipants} participants across ${data.frequencies.length} frequencies
+                    </span>
+                `;
+                
+                document.getElementById('fetch-data-btn').disabled = false;
+                
+            } catch (err) {
+                console.error('Connection error:', err);
+                status.innerHTML = `
+                    <span class="text-red-600 font-semibold">
+                        ❌ Connection failed: ${err.message}<br>
+                        <span class="text-xs">Make sure the URL is correct and the script is deployed as "Anyone" can access</span>
+                    </span>
+                `;
+                sheetsApiUrl = '';
+            }
+            
+            btn.disabled = false;
+            btn.textContent = '🧪 Test Connection';
+        });
+        
+        // Fetch and visualize
+        document.getElementById('fetch-data-btn').addEventListener('click', async function() {
+            if (!sheetsApiUrl) {
+                showError('Please configure and test the connection first');
+                return;
+            }
+            
+            try {
+                updateProgress(10, 'Fetching data from Google Sheets...');
+                
+                const response = await fetch(sheetsApiUrl + '?action=getAllData', {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                sheetsData = data;
+                
+                updateProgress(30, `Processing ${data.shapes.length} shapes...`);
+                
+                // Organize data by frequency and phase
+                const participantData = {};
+                FREQUENCIES.forEach(freq => {
+                    participantData[freq] = { red: [], blue: [] };
+                });
+                
+                data.shapes.forEach(shape => {
+                    if (participantData[shape.frequency]) {
+                        participantData[shape.frequency][shape.phase].push(shape);
+                    }
+                });
+                
+                updateProgress(50, 'Generating visualizations...');
+                
+                // Generate visualizations
+                const vizGrid = document.getElementById('visualization-grid');
+                vizGrid.innerHTML = '';
+                
+                FREQUENCIES.forEach(freq => {
+                    const redData = participantData[freq].red;
+                    const blueData = participantData[freq].blue;
+                    
+                    if (redData.length === 0 && blueData.length === 0) return;
+                    
+                    const canvas = drawVisualization(freq, redData, blueData);
+                    
+                    const container = document.createElement('div');
+                    container.className = 'canvas-container p-4 cursor-pointer hover:shadow-xl transition-shadow';
+                    container.appendChild(canvas);
+                    
+                    const info = document.createElement('div');
+                    info.className = 'mt-2 text-center text-sm';
+                    info.innerHTML = `
+                        <p class="font-bold text-gray-800">${freq} Hz</p>
+                        <p class="text-xs text-gray-600">
+                            <span class="text-red-600">Red: ${redData.length}</span> | 
+                            <span class="text-blue-600">Blue: ${blueData.length}</span>
+                        </p>
+                    `;
+                    container.appendChild(info);
+                    
+                    container.addEventListener('click', () => {
+                        const link = document.createElement('a');
+                        link.download = `sound_object_sheets_${freq}Hz.png`;
+                        link.href = canvas.toDataURL();
+                        link.click();
+                    });
+                    
+                    vizGrid.appendChild(container);
+                });
+                
+                updateProgress(75, 'Generating statistics...');
+                
+                // Generate statistics table
+                const statsBody = document.getElementById('statistics-body');
+                statsBody.innerHTML = '';
+                
+                FREQUENCIES.forEach(freq => {
+                    const redData = participantData[freq].red;
+                    const blueData = participantData[freq].blue;
+                    
+                    if (redData.length === 0 && blueData.length === 0) return;
+                    
+                    // Red statistics
+                    if (redData.length > 0) {
+                        const stats = calculateStats(redData);
+                        const row = document.createElement('tr');
+                        row.className = 'hover:bg-gray-50';
+                        row.innerHTML = `
+                            <td class="px-4 py-3 text-sm font-semibold">${freq} Hz</td>
+                            <td class="px-4 py-3 text-sm"><span class="inline-block w-3 h-3 rounded-full bg-red-500 mr-2"></span>Red (In-Phase)</td>
+                            <td class="px-4 py-3 text-sm">${stats.n}</td>
+                            <td class="px-4 py-3 text-sm font-mono">${stats.meanArea.toFixed(3)}</td>
+                            <td class="px-4 py-3 text-sm font-mono">${stats.sdArea.toFixed(3)}</td>
+                            <td class="px-4 py-3 text-sm font-mono">${stats.meanRadius.toFixed(3)}</td>
+                            <td class="px-4 py-3 text-sm font-mono">${stats.sdRadius.toFixed(3)}</td>
+                            <td class="px-4 py-3 text-sm font-mono">${stats.meanCentroidX.toFixed(3)}</td>
+                            <td class="px-4 py-3 text-sm font-mono">${stats.meanCentroidY.toFixed(3)}</td>
+                        `;
+                        statsBody.appendChild(row);
+                    }
+                    
+                    // Blue statistics
+                    if (blueData.length > 0) {
+                        const stats = calculateStats(blueData);
+                        const row = document.createElement('tr');
+                        row.className = 'hover:bg-gray-50';
+                        row.innerHTML = `
+                            <td class="px-4 py-3 text-sm font-semibold">${freq} Hz</td>
+                            <td class="px-4 py-3 text-sm"><span class="inline-block w-3 h-3 rounded-full bg-blue-500 mr-2"></span>Blue (Out-of-Phase)</td>
+                            <td class="px-4 py-3 text-sm">${stats.n}</td>
+                            <td class="px-4 py-3 text-sm font-mono">${stats.meanArea.toFixed(3)}</td>
+                            <td class="px-4 py-3 text-sm font-mono">${stats.sdArea.toFixed(3)}</td>
+                            <td class="px-4 py-3 text-sm font-mono">${stats.meanRadius.toFixed(3)}</td>
+                            <td class="px-4 py-3 text-sm font-mono">${stats.sdRadius.toFixed(3)}</td>
+                            <td class="px-4 py-3 text-sm font-mono">${stats.meanCentroidX.toFixed(3)}</td>
+                            <td class="px-4 py-3 text-sm font-mono">${stats.meanCentroidY.toFixed(3)}</td>
+                        `;
+                        statsBody.appendChild(row);
+                    }
+                });
+                
+                // Summary
+                const participants = new Set();
+                data.shapes.forEach(s => participants.add(s.participant));
+                
+                const summaryContent = document.getElementById('summary-content');
+                summaryContent.innerHTML = `
+                    <div class="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
+                        <div class="text-3xl font-bold text-blue-700">${participants.size}</div>
+                        <div class="text-sm text-gray-600 font-semibold">Participants</div>
+                    </div>
+                    <div class="bg-emerald-50 p-4 rounded-lg border-2 border-emerald-200">
+                        <div class="text-3xl font-bold text-emerald-700">${data.shapes.length}</div>
+                        <div class="text-sm text-gray-600 font-semibold">Total Shapes</div>
+                    </div>
+                    <div class="bg-purple-50 p-4 rounded-lg border-2 border-purple-200">
+                        <div class="text-3xl font-bold text-purple-700">${FREQUENCIES.filter(f => participantData[f].red.length > 0 || participantData[f].blue.length > 0).length}</div>
+                        <div class="text-sm text-gray-600 font-semibold">Frequencies</div>
+                    </div>
+                    <div class="bg-amber-50 p-4 rounded-lg border-2 border-amber-200">
+                        <div class="text-xl font-bold text-amber-700">📊 Google Sheets</div>
+                        <div class="text-sm text-gray-600 font-semibold">Data Source</div>
+                    </div>
+                `;
+                
+                updateProgress(100, 'Complete!');
+                
+                document.getElementById('data-summary').classList.remove('hidden');
+                document.getElementById('visualization-container').classList.remove('hidden');
+                document.getElementById('statistics-container').classList.remove('hidden');
+                
+                setTimeout(() => {
+                    document.getElementById('progress-container').classList.add('hidden');
+                }, 2000);
+                
+            } catch (err) {
+                console.error('Error:', err);
+                showError(err.message);
+                updateProgress(0, '');
+                document.getElementById('progress-container').classList.add('hidden');
+            }
+        });
+        
+        // Calculate statistics
+        function calculateStats(dataArray) {
+            const areas = dataArray.map(d => d.area);
+            const radii = dataArray.map(d => d.radius);
+            const xValues = dataArray.map(d => d.centroid.x);
+            const yValues = dataArray.map(d => d.centroid.y);
+            
+            return {
+                n: dataArray.length,
+                meanArea: mean(areas),
+                sdArea: stdDev(areas),
+                meanRadius: mean(radii),
+                sdRadius: stdDev(radii),
+                meanCentroidX: mean(xValues),
+                meanCentroidY: mean(yValues)
+            };
+        }
+        
+        function mean(arr) {
+            return arr.reduce((sum, val) => sum + val, 0) / arr.length;
+        }
+        
+        function stdDev(arr) {
+            const avg = mean(arr);
+            const squareDiffs = arr.map(val => Math.pow(val - avg, 2));
+            return Math.sqrt(mean(squareDiffs));
+        }
+        
+        // Draw visualization
+        function drawVisualization(frequency, redData, blueData) {
+            const canvas = document.createElement('canvas');
+            canvas.width = CANVAS_SIZE;
+            canvas.height = CANVAS_SIZE;
+            const ctx = canvas.getContext('2d');
+            
+            // White background
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+            
+            const center = CANVAS_SIZE / 2;
+            const scale = SCALE_FACTOR;
+            
+            // Background circle
+            ctx.beginPath();
+            ctx.arc(center, center, BACKGROUND_CIRCLE_RADIUS_UNITS * scale, 0, 2 * Math.PI);
+            ctx.strokeStyle = '#cccccc';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Axes
+            ctx.strokeStyle = '#dddddd';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, center);
+            ctx.lineTo(CANVAS_SIZE, center);
+            ctx.moveTo(center, 0);
+            ctx.lineTo(center, CANVAS_SIZE);
+            ctx.stroke();
+            
+            // Draw shapes
+            function drawShapes(dataArray, color, isDashed) {
+                if (dataArray.length === 0) return;
+                
+                // Individual circles (transparent)
+                ctx.globalAlpha = 0.15;
+                dataArray.forEach(d => {
+                    const x = center + d.centroid.x * scale;
+                    const y = center - d.centroid.y * scale;
+                    const r = d.radius * scale;
+                    
+                    ctx.beginPath();
+                    ctx.arc(x, y, r, 0, 2 * Math.PI);
+                    ctx.fillStyle = color;
+                    ctx.fill();
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 0.5;
+                    ctx.stroke();
+                });
+                ctx.globalAlpha = 1.0;
+                
+                // Average circle
+                const avgX = mean(dataArray.map(d => d.centroid.x));
+                const avgY = mean(dataArray.map(d => d.centroid.y));
+                const avgR = mean(dataArray.map(d => d.radius));
+                
+                const x = center + avgX * scale;
+                const y = center - avgY * scale;
+                const r = avgR * scale;
+                
+                // Fill
+                ctx.fillStyle = color + '26';
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, 2 * Math.PI);
+                ctx.fill();
+                
+                // Outline
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 3;
+                if (isDashed) {
+                    ctx.setLineDash([10, 6]);
+                }
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, 2 * Math.PI);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                // Centroid marker
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+            
+            // Blue first, then red
+            drawShapes(blueData, '#0000ff', true);
+            drawShapes(redData, '#ff0000', false);
+            
+            // Title
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 24px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(`${frequency} Hz`, center, 40);
+            
+            return canvas;
+        }
+    </script>
+</body>
+</html>
