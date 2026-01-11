@@ -2,780 +2,1588 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sound Object Sheets Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sound Object Contour Tracer | UCI Hearing & Speech Lab</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <style>
-        body {
-            font-family: ui-sans-serif, system-ui, sans-serif;
-            background-color: #f3f4f6;
-        }
-        
-        .canvas-container {
-            background: white;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
-        
-        .analysis-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 1.5rem;
-        }
+        * { -webkit-tap-highlight-color: transparent; }
+        body { min-height: 100vh; font-family: ui-sans-serif, system-ui, sans-serif; background: #f3f4f6; }
+        #canvas-container { max-width: 100%; width: 100%; margin: 0 auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-radius: 0.75rem; overflow: hidden; background: #fff; touch-action: none; aspect-ratio: 1; }
+        #drawing-canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+        input[type="range"] { -webkit-appearance: none; background: transparent; cursor: pointer; width: 100%; height: 40px; }
+        input[type="range"]::-webkit-slider-runnable-track { background: linear-gradient(to right, #3b82f6, #8b5cf6); height: 8px; border-radius: 4px; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 24px; width: 24px; background: #000; border: 3px solid #fff; border-radius: 50%; cursor: grab; margin-top: -8px; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+        input[type="range"]::-moz-range-track { background: linear-gradient(to right, #3b82f6, #8b5cf6); height: 8px; border-radius: 4px; }
+        input[type="range"]::-moz-range-thumb { height: 24px; width: 24px; background: #000; border: 3px solid #fff; border-radius: 50%; cursor: grab; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+        .slider-labels { display: flex; justify-content: space-between; font-size: 11px; color: #6b7280; margin-top: 4px; }
+        .tab-btn { transition: all 0.2s; }
+        .tab-btn.active { background: linear-gradient(to right, #3b82f6, #8b5cf6) !important; color: white !important; transform: scale(1.05); }
+        .trial-btn.active { background: linear-gradient(to right, #10b981, #059669) !important; color: white !important; }
+        .freq-btn.active { background: linear-gradient(to right, #f59e0b, #d97706) !important; color: white !important; }
+        .color-button.selected { border: 4px solid white !important; box-shadow: 0 0 0 4px #3b82f6 !important; transform: scale(1.15) !important; }
+        .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; opacity: 0; visibility: hidden; transition: all 0.3s; }
+        .modal.active { opacity: 1; visibility: visible; }
+        .modal-content { background: white; border-radius: 16px; padding: 1.5rem; max-width: 900px; width: 95%; max-height: 90vh; overflow-y: auto; }
+        .checkbox-grid { display: grid; gap: 0.5rem; max-height: 200px; overflow-y: auto; }
+        .checkbox-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: #f8fafc; border-radius: 6px; cursor: pointer; }
+        .data-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+        .data-table th { background: #f1f5f9; padding: 0.5rem; text-align: left; font-weight: 600; }
+        .data-table td { padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-family: monospace; }
     </style>
 </head>
-<body class="p-4 md:p-8">
-    
-    <div class="max-w-7xl mx-auto">
-        <!-- Header -->
-        <header class="text-center mb-8">
-            <h1 class="text-3xl lg:text-4xl font-extrabold text-blue-800 mb-2">
-                Sound Object Composite Image Generator
-                <span class="inline-block ml-2 px-3 py-1 text-xs font-bold bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-full shadow-lg">📊 FROM DATA</span>
-            </h1>
-            <p class="text-lg sm:text-xl font-semibold text-gray-600">UCI Hearing & Speech Lab</p>
-            <p class="text-sm text-gray-500 mt-2">Generate 11 composite images (one per frequency) from Google Sheets data</p>
-            <div class="mt-3 flex justify-center gap-2 flex-wrap text-xs">
-                <span class="px-3 py-1 bg-blue-100 text-blue-700 rounded-full border border-blue-300">11 Frequencies</span>
-                <span class="px-3 py-1 bg-purple-100 text-purple-700 rounded-full border border-purple-300">Red & Blue Phases</span>
-                <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full border border-green-300">Accurate Centroids</span>
-                <span class="px-3 py-1 bg-amber-100 text-amber-700 rounded-full border border-amber-300">Circle Approximations</span>
-            </div>
+<body class="p-4 sm:p-8">
+    <div class="max-w-6xl mx-auto">
+        <header class="text-center mb-6">
+            <h1 class="text-4xl font-extrabold text-blue-800 mb-2">Sound Object Contour Tracer</h1>
+            <p class="text-xl font-semibold text-gray-600">UCI Hearing & Speech Lab</p>
         </header>
         
-        <!-- Configuration -->
+        <!-- Upload -->
         <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
-            <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                </svg>
-                Google Sheets Configuration
-            </h2>
-            
-            <div class="space-y-4">
+            <h2 class="text-lg font-bold text-gray-800 mb-4">📁 Upload Images or Import Data</h2>
+            <div class="flex flex-wrap gap-3">
+                <label class="px-6 py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg cursor-pointer">📁 Upload ZIP<input type="file" id="zip-upload" accept=".zip" class="hidden"></label>
+                <label class="px-6 py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg cursor-pointer">🖼️ Single PNG<input type="file" id="single-upload" accept="image/png" class="hidden"></label>
+                <label class="px-6 py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-teal-500 to-teal-600 text-white shadow-lg cursor-pointer">📥 Import JSON<input type="file" id="json-import" accept=".json" class="hidden"></label>
+            </div>
+            <p class="mt-3 text-sm text-gray-500">Supports nested ZIPs. Structure: ParticipantName/TrialFolder/filename.png</p>
+            <div id="upload-log" class="mt-3 text-xs text-gray-600 font-mono max-h-64 overflow-y-auto border border-gray-200 rounded-lg p-2 bg-gray-50 hidden"></div>
+        </div>
+        
+        <!-- Participant Tabs -->
+        <div id="participant-section" class="bg-white p-4 rounded-xl shadow-lg mb-4 hidden">
+            <h2 class="text-lg font-bold text-gray-800 mb-3">Select Participant</h2>
+            <div id="participant-tabs" class="flex flex-wrap gap-2"></div>
+        </div>
+        
+        <!-- Trial Tabs -->
+        <div id="trial-section" class="bg-white p-4 rounded-xl shadow-lg mb-4 hidden">
+            <h2 class="text-lg font-bold text-gray-800 mb-3">Select Trial</h2>
+            <div id="trial-tabs" class="flex flex-wrap gap-2"></div>
+        </div>
+        
+        <!-- Frequency Tabs -->
+        <div id="frequency-section" class="bg-white p-4 rounded-xl shadow-lg mb-4 hidden">
+            <h2 class="text-lg font-bold text-gray-800 mb-3">Select Frequency</h2>
+            <div id="frequency-tabs" class="flex flex-wrap gap-2"></div>
+        </div>
+        
+        <!-- Canvas -->
+        <div id="canvas-container" class="bg-white rounded-xl shadow-2xl mb-6"><canvas id="drawing-canvas"></canvas></div>
+        
+        <!-- Controls -->
+        <div class="bg-white p-4 rounded-xl shadow-lg mb-6 space-y-4">
+            <div class="flex flex-wrap items-start gap-6">
                 <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-2">
-                        Google Apps Script Web App URL
-                    </label>
-                    <input 
-                        type="text" 
-                        id="sheets-api-url" 
-                        placeholder="https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec"
-                        class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                    >
-                    <p class="text-xs text-gray-500 mt-2">
-                        Deploy the Google Apps Script from your Sheet (reading "Data" tab) and paste the Web App URL here. 
-                    </p>
+                    <p class="font-bold text-gray-800 mb-2">Color</p>
+                    <div class="flex gap-3">
+                        <button id="color-red" class="color-button w-12 h-12 rounded-full shadow-md border-4 border-gray-200 selected" style="background:#ef4444;"></button>
+                        <button id="color-blue" class="color-button w-12 h-12 rounded-full shadow-md border-4 border-gray-200" style="background:#3b82f6;"></button>
+                    </div>
                 </div>
-                
-                <div class="flex gap-3">
-                    <button 
-                        id="test-connection-btn"
-                        class="px-6 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-all shadow-md"
-                    >
-                        🧪 Test Connection
-                    </button>
-                    
-                    <button 
-                        id="fetch-data-btn"
-                        disabled
-                        class="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all shadow-md"
-                    >
-                        📊 Fetch Data & Generate Visualizations
-                    </button>
+                <div class="flex-1 min-w-[250px]">
+                    <label class="font-bold text-gray-800">Brush Size: <span id="brush-val" class="text-xl text-blue-600">5</span></label>
+                    <input id="brush-slider" type="range" min="1" max="10" value="5">
+                    <div class="slider-labels"><span>1px</span><span>5px</span><span>10px</span></div>
                 </div>
-                
-                <div id="connection-status" class="text-sm"></div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
+                <div class="bg-blue-50 p-4 rounded-xl">
+                    <label class="font-bold text-gray-800">Resample Rate: <span id="resample-val" class="text-xl text-blue-600">1000</span></label>
+                    <input id="resample-slider" type="range" min="500" max="10000" step="250" value="1000">
+                    <div class="slider-labels"><span>500</span><span>5000</span><span>10000</span></div>
+                </div>
+                <div class="bg-green-50 p-4 rounded-xl">
+                    <label class="font-bold text-gray-800">Shape Opacity: <span id="opacity-val" class="text-xl text-green-600">5%</span></label>
+                    <input id="opacity-slider" type="range" min="0" max="100" value="5">
+                    <div class="slider-labels"><span>0%</span><span>50%</span><span>100%</span></div>
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-2 pt-4 border-t">
+                <button id="toggle-draw" class="px-5 py-2 rounded-xl font-bold text-sm bg-green-500 text-white shadow">✏️ Drawing: ON</button>
+                <button id="undo-btn" disabled class="px-5 py-2 rounded-xl font-bold text-sm bg-yellow-400 text-gray-900 shadow disabled:opacity-50">↩️ Undo</button>
+                <button id="redo-btn" disabled class="px-5 py-2 rounded-xl font-bold text-sm bg-yellow-400 text-gray-900 shadow disabled:opacity-50">↪️ Redo</button>
+                <button id="clear-btn" class="px-5 py-2 rounded-xl font-bold text-sm bg-red-500 text-white shadow">🗑️ Clear</button>
+                <button id="grid-btn" class="px-5 py-2 rounded-xl font-bold text-sm bg-gray-500 text-white shadow">📐 Grid</button>
+            </div>
+            <div id="status" class="text-sm text-gray-500 pt-2 border-t">Ready. Upload images to begin.</div>
+        </div>
+        
+        <!-- Info + Average -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div class="bg-white p-6 rounded-xl shadow-lg">
+                <h2 class="font-bold text-gray-800 mb-4">Current Selection</h2>
+                <div class="space-y-1 text-sm">
+                    <p>Participant: <span id="info-p" class="font-mono font-bold">-</span></p>
+                    <p>Trial: <span id="info-t" class="font-mono font-bold">-</span></p>
+                    <p>Frequency: <span id="info-f" class="font-mono font-bold">-</span></p>
+                    <p>Red: <span id="info-r" class="font-mono font-bold text-red-500">0</span> | Blue: <span id="info-b" class="font-mono font-bold text-blue-500">0</span></p>
+                </div>
+            </div>
+            <div class="bg-white p-6 rounded-xl shadow-lg">
+                <h2 class="font-bold text-gray-800 mb-4">Average Shapes</h2>
+                <div class="space-y-2">
+                    <button id="gen-avg" class="w-full px-4 py-2 rounded-xl font-bold text-sm bg-emerald-500 text-white shadow">📊 Generate Current</button>
+                    <button id="bulk-avg" class="w-full px-4 py-2 rounded-xl font-bold text-sm bg-indigo-500 text-white shadow">📦 Bulk Generate...</button>
+                    <button id="clear-avg" class="w-full px-4 py-2 rounded-xl font-bold text-sm bg-orange-400 text-white shadow">🧹 Clear Average</button>
+                </div>
             </div>
         </div>
         
-        <!-- Progress -->
-        <div id="progress-container" class="hidden bg-white p-6 rounded-xl shadow-lg mb-6">
-            <div class="mb-2 flex justify-between items-center">
-                <h3 class="text-lg font-bold text-gray-800">Processing</h3>
-                <span id="progress-percentage" class="text-sm font-mono font-bold text-green-600">0%</span>
+        <!-- Data Table -->
+        <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+            <div class="flex justify-between mb-4">
+                <h2 class="font-bold text-blue-700">Coordinate Data</h2>
+                <button id="toggle-data" class="px-4 py-1 rounded-lg text-sm bg-gray-100">Show/Hide</button>
             </div>
-            <div class="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-                <div id="progress-bar" class="h-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full transition-all" style="width: 0%"></div>
+            <div id="data-box" class="hidden max-h-80 overflow-auto">
+                <table class="data-table"><thead><tr><th>Participant</th><th>Trial</th><th>Freq</th><th>Color</th><th>#</th><th>Pts</th><th>Sample</th></tr></thead><tbody id="data-body"><tr><td colspan="7" class="text-center text-gray-400 py-8">No data</td></tr></tbody></table>
             </div>
-            <p id="progress-text" class="mt-2 text-sm text-gray-600 font-semibold"></p>
+            <p class="text-xs text-gray-500 mt-2">Grid: 1000×1000px canvas, 20×20 units (-10 to +10), 50px per unit. Images align 1:1 with grid.</p>
         </div>
         
-        <!-- Data Summary -->
-        <div id="data-summary" class="hidden bg-white p-6 rounded-xl shadow-lg mb-6">
-            <h2 class="text-2xl font-bold text-gray-800 mb-4">Data Summary</h2>
-            <div id="summary-content" class="grid grid-cols-1 md:grid-cols-4 gap-4"></div>
-        </div>
-        
-        <!-- Export Combined Image Button -->
-        <div id="export-combined-container" class="hidden bg-white p-6 rounded-xl shadow-lg mb-6">
-            <h2 class="text-2xl font-bold text-gray-800 mb-4">Export Options</h2>
-            <div class="flex gap-3 flex-wrap">
-                <button 
-                    id="export-combined-btn"
-                    class="px-6 py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition-all shadow-md flex items-center gap-2"
-                >
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                    </svg>
-                    Download Combined Image (All Frequencies)
-                </button>
-                
-                <button 
-                    id="export-stats-btn"
-                    class="px-6 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-all shadow-md flex items-center gap-2"
-                >
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                    </svg>
-                    Export Statistics to Google Sheets
-                </button>
+        <!-- Export -->
+        <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+            <h3 class="font-bold text-gray-800 mb-4">Export Data</h3>
+            <div class="grid grid-cols-2 gap-3">
+                <button id="exp-csv" class="px-4 py-2 rounded-xl font-bold text-sm bg-teal-500 text-white shadow">📄 CSV</button>
+                <button id="exp-json" class="px-4 py-2 rounded-xl font-bold text-sm bg-purple-500 text-white shadow">📦 JSON</button>
             </div>
         </div>
         
-        <!-- Visualizations -->
-        <div id="visualization-container" class="hidden mb-6">
-            <div class="bg-white p-6 rounded-xl shadow-lg mb-4">
-                <h2 class="text-2xl font-bold text-gray-800 mb-2">11 Composite Images (One Per Frequency)</h2>
-                <p class="text-sm text-gray-600 mb-2">
-                    Each image shows clean averaged circles at one frequency with individual participant shapes in light gray background
-                </p>
-                <p class="text-xs text-gray-500">
-                    🔴 Red (solid line) = In-phase average • 🔵 Blue (dashed line) = Out-of-phase average • Gray circles = individual participants
-                </p>
-                <p class="text-xs text-gray-500 mt-1">
-                    Grid lines mark 1-unit intervals • Reference circle (black) = 3 units radius • Center (0,0) marked by axis intersection
-                </p>
-                <p class="text-xs text-gray-500 mt-1">
-                    Click any image to download as PNG
-                </p>
+        <!-- Cloud Collaboration -->
+        <div class="bg-gradient-to-r from-indigo-50 to-purple-50 p-6 rounded-xl shadow-lg mb-6 border-2 border-indigo-200">
+            <h3 class="font-bold text-indigo-800 mb-3">☁️ Cloud Collaboration (Google Sheets)</h3>
+            <p class="text-xs text-gray-600 mb-4">Multiple tracers can save/load progress. Each person's work is stored separately and can be merged.</p>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-1">Apps Script URL</label>
+                <input id="cloud-url" placeholder="https://script.google.com/macros/s/..." class="w-full px-3 py-2 border-2 border-indigo-300 rounded-xl text-sm">
             </div>
-            <div id="visualization-grid" class="analysis-grid"></div>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-1">Your Tracer Name</label>
+                <input id="tracer-name" placeholder="e.g., James, Sarah, Lab_Assistant_1" class="w-full px-3 py-2 border-2 border-indigo-300 rounded-xl text-sm">
+            </div>
+            
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <button id="cloud-save" class="px-4 py-2 rounded-xl font-bold text-sm bg-green-500 text-white shadow">💾 Save to Cloud</button>
+                <button id="cloud-load" class="px-4 py-2 rounded-xl font-bold text-sm bg-blue-500 text-white shadow">📂 Load My Progress</button>
+            </div>
+            
+            <div class="border-t border-indigo-200 pt-4 mt-4">
+                <h4 class="font-semibold text-gray-700 mb-2">Team Collaboration</h4>
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <button id="cloud-list" class="px-4 py-2 rounded-xl font-bold text-sm bg-indigo-500 text-white shadow">👥 List All Tracers</button>
+                    <button id="cloud-merge" class="px-4 py-2 rounded-xl font-bold text-sm bg-purple-500 text-white shadow">🔀 Merge All Data</button>
+                </div>
+                <div class="flex gap-2">
+                    <select id="tracer-select" class="flex-1 px-3 py-2 border-2 border-indigo-300 rounded-xl text-sm">
+                        <option value="">-- Select tracer to load --</option>
+                    </select>
+                    <button id="cloud-load-other" class="px-4 py-2 rounded-xl font-bold text-sm bg-cyan-500 text-white shadow">Load</button>
+                </div>
+            </div>
+            
+            <div class="border-t border-indigo-200 pt-4 mt-4">
+                <div class="flex items-center gap-3">
+                    <button id="auto-cloud-toggle" class="px-4 py-2 rounded-xl font-bold text-sm bg-amber-500 text-white shadow">⚡ Auto-Save: OFF</button>
+                    <span class="text-xs text-gray-500">Auto-saves to cloud after each shape</span>
+                </div>
+            </div>
+            
+            <p id="cloud-status" class="text-xs text-gray-500 mt-3"></p>
         </div>
         
-        <!-- Statistics -->
-        <div id="statistics-container" class="hidden bg-white p-6 rounded-xl shadow-lg mb-6">
-            <h2 class="text-2xl font-bold text-gray-800 mb-4">Statistical Summary</h2>
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gradient-to-r from-green-50 to-emerald-50">
-                        <tr>
-                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Frequency</th>
-                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Phase</th>
-                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">N</th>
-                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Mean Area</th>
-                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">SD Area</th>
-                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Mean Radius</th>
-                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">SD Radius</th>
-                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Mean X</th>
-                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Mean Y</th>
-                        </tr>
-                    </thead>
-                    <tbody id="statistics-body" class="bg-white divide-y divide-gray-200"></tbody>
-                </table>
+        <!-- Google -->
+        <div class="bg-emerald-50 p-6 rounded-xl shadow-lg mb-6 border-2 border-emerald-200">
+            <h3 class="font-bold text-emerald-800 mb-3">Google Sheets</h3>
+            <div class="flex gap-2 mb-2">
+                <input id="sheets-url" placeholder="Apps Script URL..." class="flex-1 px-3 py-2 border-2 border-emerald-300 rounded-xl text-sm">
+                <button id="exp-sheets" class="px-4 py-2 rounded-xl font-bold text-sm bg-emerald-500 text-white">Export</button>
+            </div>
+            <button id="imp-sheets" class="px-4 py-2 rounded-xl font-bold text-sm bg-cyan-500 text-white">Import</button>
+        </div>
+        
+        <div class="bg-blue-50 p-6 rounded-xl shadow-lg mb-6 border-2 border-blue-200">
+            <h3 class="font-bold text-blue-800 mb-3">Google Drive</h3>
+            <div class="flex gap-2">
+                <input id="drive-url" placeholder="Apps Script URL..." class="flex-1 px-3 py-2 border-2 border-blue-300 rounded-xl text-sm">
+                <button id="exp-drive" class="px-4 py-2 rounded-xl font-bold text-sm bg-blue-500 text-white">Export</button>
             </div>
         </div>
         
-        <!-- Footer -->
-        <footer class="text-center text-sm text-gray-500 mt-8 pb-4">
-            <p class="font-semibold">UCI Hearing & Speech Lab - Sound Object Composite Image Generator</p>
-            <p class="mt-1">Generates 11 frequency-based composite visualizations from "Data" tab • Red & Blue phases</p>
-        </footer>
+        <!-- Gallery -->
+        <div class="bg-white p-6 rounded-xl shadow-lg">
+            <h3 class="font-bold text-gray-800 mb-4">Average Shapes Gallery</h3>
+            <div id="gallery" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"><div class="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center text-gray-400">No averages yet</div></div>
+        </div>
     </div>
     
-    <script>
-        // Configuration
-        const CANVAS_SIZE = 600;
-        const UNIT_RANGE = 10;
-        const SCALE_FACTOR = CANVAS_SIZE / (2 * UNIT_RANGE);
-        const BACKGROUND_CIRCLE_RADIUS_UNITS = 3;
+    <!-- Modal -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="flex justify-between mb-4"><h2 class="font-bold text-xl">Bulk Generate</h2><button id="close-modal" class="p-2 hover:bg-gray-100 rounded">✕</button></div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div><h4 class="font-semibold mb-2">Participants <button id="sel-all-p" class="text-xs text-blue-600 ml-2">All</button></h4><div id="mod-p" class="checkbox-grid"></div></div>
+                <div><h4 class="font-semibold mb-2">Trials <button id="sel-all-t" class="text-xs text-blue-600 ml-2">All</button></h4><div id="mod-t" class="checkbox-grid"></div></div>
+                <div><h4 class="font-semibold mb-2">Frequencies <button id="sel-all-f" class="text-xs text-blue-600 ml-2">All</button></h4><div id="mod-f" class="checkbox-grid"></div></div>
+            </div>
+            <div class="flex justify-end gap-2"><button id="cancel-modal" class="px-4 py-2 rounded-xl bg-gray-200 font-bold">Cancel</button><button id="do-bulk" class="px-4 py-2 rounded-xl bg-emerald-500 text-white font-bold">Generate</button></div>
+        </div>
+    </div>
+
+<script>
+// ============================================
+// CONSTANTS - MATCHING ORIGINAL APP EXACTLY
+// ============================================
+const CANVAS_SIZE = 1000;
+const UNIT_RANGE = 10;
+const SCALE_FACTOR = CANVAS_SIZE / (UNIT_RANGE * 2); // = 50
+const CENTER = CANVAS_SIZE / 2; // = 500
+const BACKGROUND_CIRCLE_RADIUS = 3; // units
+const IMAGE_OPACITY = 0.10;
+
+const FREQUENCIES = [
+    { hz: 62.5, db: 100 },
+    { hz: 125, db: 90 },
+    { hz: 250, db: 85 },
+    { hz: 500, db: 80 },
+    { hz: 1000, db: 80 },
+    { hz: 2000, db: 80 }
+];
+
+const COLORS = { red: '#ef4444', blue: '#3b82f6' };
+
+// ============================================
+// STATE
+// ============================================
+let canvas, ctx;
+let showGrid = true, drawingOn = true, isDrawing = false;
+let selColor = 'red', brushSize = 5, resampleRate = 1000, shapeOpacity = 5;
+let curPath = [];
+let allData = {}, images = {}, trialMapping = {};
+let curParticipant = null, curTrial = null, curFreq = null;
+let undoStack = [], redoStack = [];
+
+// ============================================
+// COORDINATE TRANSFORMS - EXACT MATCH
+// ============================================
+function canvasToUnit(x, y) {
+    return {
+        x: (x - CENTER) / SCALE_FACTOR,
+        y: (CENTER - y) / SCALE_FACTOR
+    };
+}
+
+function unitToCanvas(x, y) {
+    return {
+        x: x * SCALE_FACTOR + CENTER,
+        y: CENTER - y * SCALE_FACTOR
+    };
+}
+
+// ============================================
+// HELPERS
+// ============================================
+const fKey = f => `${f.hz}Hz_${f.db}dB`;
+const dataKey = () => curParticipant && curTrial && curFreq ? `${curParticipant}|${curTrial}|${fKey(curFreq)}` : null;
+const status = m => document.getElementById('status').textContent = m;
+const log = m => { const el = document.getElementById('upload-log'); el.classList.remove('hidden'); el.innerHTML += m + '<br>'; el.scrollTop = el.scrollHeight; };
+
+function ensureData(p, t, f) {
+    if (!allData[p]) allData[p] = {};
+    if (!allData[p][t]) allData[p][t] = {};
+    if (!allData[p][t][f]) allData[p][t][f] = { red: [], blue: [], redAvg: null, blueAvg: null };
+    return allData[p][t][f];
+}
+
+function curData() {
+    return curParticipant && curTrial && curFreq ? ensureData(curParticipant, curTrial, fKey(curFreq)) : null;
+}
+
+// ============================================
+// RESAMPLING
+// ============================================
+function resample(pts, n) {
+    if (pts.length < 2) return pts;
+    let len = 0;
+    const segs = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+        const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y);
+        segs.push(d);
+        len += d;
+    }
+    if (len === 0) return [pts[0]];
+    const res = [{ ...pts[0] }];
+    const iv = len / (n - 1);
+    let cd = 0, si = 0;
+    for (let i = 1; i < n - 1; i++) {
+        const td = i * iv;
+        while (si < segs.length && cd + segs[si] < td) cd += segs[si++];
+        if (si >= segs.length) break;
+        const pr = (td - cd) / segs[si];
+        res.push({ x: pts[si].x + (pts[si+1].x - pts[si].x) * pr, y: pts[si].y + (pts[si+1].y - pts[si].y) * pr });
+    }
+    res.push({ ...pts[pts.length - 1] });
+    return res;
+}
+
+// ============================================
+// DRAWING - EXACT GRID MATCH
+// ============================================
+function drawGrid() {
+    if (!showGrid) return;
+    ctx.save();
+    
+    // Minor grid lines
+    ctx.strokeStyle = '#e5e7eb';
+    ctx.lineWidth = 1;
+    for (let i = -UNIT_RANGE + 1; i < UNIT_RANGE; i++) {
+        if (i === 0) continue;
+        const c = unitToCanvas(i, i);
+        ctx.beginPath(); ctx.moveTo(0, c.y); ctx.lineTo(CANVAS_SIZE, c.y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(c.x, 0); ctx.lineTo(c.x, CANVAS_SIZE); ctx.stroke();
+    }
+    
+    // Major axes
+    ctx.strokeStyle = '#6b7280';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, CENTER); ctx.lineTo(CANVAS_SIZE, CENTER); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(CENTER, 0); ctx.lineTo(CENTER, CANVAS_SIZE); ctx.stroke();
+    
+    // Labels
+    ctx.fillStyle = '#4b5563';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    for (let i = -UNIT_RANGE; i <= UNIT_RANGE; i += 2) {
+        if (i === 0) continue;
+        ctx.fillText(i.toString(), unitToCanvas(i, 0).x, CENTER + 20);
+    }
+    ctx.textAlign = 'left';
+    for (let j = -UNIT_RANGE; j <= UNIT_RANGE; j += 2) {
+        if (j === 0) continue;
+        ctx.fillText(j.toString(), CENTER + 10, unitToCanvas(0, j).y);
+    }
+    
+    ctx.restore();
+}
+
+function drawRefCircle() {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(CENTER, CENTER, BACKGROUND_CIRCLE_RADIUS * SCALE_FACTOR, 0, 2 * Math.PI);
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawShape(s, clr, op = 1, lw = null) {
+    if (!s || s.length < 2) return;
+    ctx.save();
+    ctx.globalAlpha = op;
+    ctx.strokeStyle = clr;
+    ctx.lineWidth = lw || brushSize;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    const st = unitToCanvas(s[0].x, s[0].y);
+    ctx.moveTo(st.x, st.y);
+    for (let i = 1; i < s.length; i++) {
+        const p = unitToCanvas(s[i].x, s[i].y);
+        ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawAvgShape(s, clr) {
+    if (!s || s.length < 2) return;
+    ctx.save();
+    ctx.strokeStyle = clr === COLORS.red ? '#991b1b' : '#1e3a8a';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    const st = unitToCanvas(s[0].x, s[0].y);
+    ctx.moveTo(st.x, st.y);
+    for (let i = 1; i < s.length; i++) {
+        const p = unitToCanvas(s[i].x, s[i].y);
+        ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+    ctx.restore();
+}
+
+function redraw() {
+    ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    
+    // Background image at 10% opacity
+    // CRITICAL: Images must be drawn at exact 1:1 pixel mapping for accurate tracing
+    // Original PNGs are 1000x1000 pixels matching our canvas exactly
+    // The grid in the PNG aligns with our canvas grid (-10 to +10 units, 50px per unit)
+    const ik = curParticipant && curTrial && curFreq ? `${curParticipant}|${curTrial}|${fKey(curFreq)}` : null;
+    if (ik && images[ik]) {
+        ctx.save();
+        ctx.globalAlpha = IMAGE_OPACITY;
         
-        // The 11 frequencies we generate composite images for
-        const FREQUENCIES = [31, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000];
-        
-        let sheetsApiUrl = '';
-        let sheetsData = null;
-        let generatedCanvases = {};
-        let statisticsData = [];
-        
-        // Load saved URL
-        window.addEventListener('DOMContentLoaded', () => {
-            const saved = localStorage.getItem('sheetsApiUrl');
-            if (saved) {
-                document.getElementById('sheets-api-url').value = saved;
-                sheetsApiUrl = saved;
-            }
-        });
-        
-        // Update progress
-        function updateProgress(percentage, message) {
-            const container = document.getElementById('progress-container');
-            const bar = document.getElementById('progress-bar');
-            const text = document.getElementById('progress-text');
-            const pct = document.getElementById('progress-percentage');
-            
-            container.classList.remove('hidden');
-            bar.style.width = `${percentage}%`;
-            text.textContent = message;
-            pct.textContent = `${Math.round(percentage)}%`;
+        const img = images[ik];
+        // Draw at 0,0 to ensure the image grid aligns with canvas grid
+        // Both use: 1000x1000 pixels, center at (500,500), scale of 50px per unit
+        if (img.naturalWidth === CANVAS_SIZE && img.naturalHeight === CANVAS_SIZE) {
+            // Perfect match - draw directly
+            ctx.drawImage(img, 0, 0);
+        } else {
+            // Scale to fit canvas while maintaining aspect ratio at center
+            // This ensures the coordinate system still aligns
+            const scale = Math.min(CANVAS_SIZE / img.naturalWidth, CANVAS_SIZE / img.naturalHeight);
+            const scaledW = img.naturalWidth * scale;
+            const scaledH = img.naturalHeight * scale;
+            const offsetX = (CANVAS_SIZE - scaledW) / 2;
+            const offsetY = (CANVAS_SIZE - scaledH) / 2;
+            ctx.drawImage(img, offsetX, offsetY, scaledW, scaledH);
         }
         
-        function showError(message) {
-            const status = document.getElementById('connection-status');
-            status.innerHTML = `<span class="text-red-600 font-semibold">❌ Error: ${message}</span>`;
-        }
+        ctx.restore();
+    }
+    
+    drawRefCircle();
+    
+    const d = curData();
+    if (d) {
+        const op = shapeOpacity / 100;
+        d.red.forEach(s => drawShape(s, COLORS.red, op));
+        d.blue.forEach(s => drawShape(s, COLORS.blue, op));
+        if (d.redAvg) drawAvgShape(d.redAvg, COLORS.red);
+        if (d.blueAvg) drawAvgShape(d.blueAvg, COLORS.blue);
+    }
+    
+    drawGrid();
+    updateInfo();
+}
+
+function updateInfo() {
+    document.getElementById('info-p').textContent = curParticipant || '-';
+    document.getElementById('info-t').textContent = curTrial || '-';
+    document.getElementById('info-f').textContent = curFreq ? `${curFreq.hz} Hz` : '-';
+    const d = curData();
+    document.getElementById('info-r').textContent = d ? d.red.length : 0;
+    document.getElementById('info-b').textContent = d ? d.blue.length : 0;
+}
+
+// ============================================
+// DRAWING EVENTS
+// ============================================
+function getPoint(e) {
+    const r = canvas.getBoundingClientRect();
+    let cx, cy;
+    if (e.touches?.length) { cx = e.touches[0].clientX; cy = e.touches[0].clientY; }
+    else if (e.changedTouches?.length) { cx = e.changedTouches[0].clientX; cy = e.changedTouches[0].clientY; }
+    else { cx = e.clientX; cy = e.clientY; }
+    return { x: (cx - r.left) * (CANVAS_SIZE / r.width), y: (cy - r.top) * (CANVAS_SIZE / r.height) };
+}
+
+function startDraw(e) {
+    if (!drawingOn || !curParticipant) return;
+    isDrawing = true;
+    const p = getPoint(e);
+    curPath = [p];
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.strokeStyle = COLORS[selColor];
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = 'round';
+    e.preventDefault();
+}
+
+function doDraw(e) {
+    if (!isDrawing) return;
+    const p = getPoint(e);
+    curPath.push(p);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    e.preventDefault();
+}
+
+function endDraw() {
+    if (!isDrawing) return;
+    isDrawing = false;
+    if (curPath.length > 5) {
+        const d = curData();
+        undoStack.push({ key: dataKey(), data: JSON.parse(JSON.stringify(d)) });
+        redoStack = [];
+        const up = curPath.map(p => canvasToUnit(p.x, p.y));
+        const rs = resample(up, resampleRate);
+        d[selColor].push(rs);
+        redraw();
+        updateTable();
+        status(`Added ${selColor} (${rs.length} pts)`);
         
-        // Test connection
-        document.getElementById('test-connection-btn').addEventListener('click', async function() {
-            const btn = this;
-            const status = document.getElementById('connection-status');
-            const urlInput = document.getElementById('sheets-api-url');
-            const url = urlInput.value.trim();
-            
-            if (!url) {
-                status.innerHTML = '<span class="text-red-600">❌ Please enter a URL</span>';
-                return;
-            }
-            
-            btn.disabled = true;
-            btn.textContent = '🔄 Testing...';
-            status.innerHTML = '<span class="text-gray-600">Connecting...</span>';
-            
-            try {
-                const response = await fetch(url + '?action=getSummary', {
-                    method: 'GET',
-                    mode: 'cors'
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                
-                const data = await response.json();
-                
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-                
-                sheetsApiUrl = url;
-                localStorage.setItem('sheetsApiUrl', url);
-                
-                status.innerHTML = `
-                    <span class="text-green-600 font-semibold">
-                        ✅ Connected successfully!<br>
-                        Found ${data.totalShapes} shapes from ${data.uniqueParticipants} participants across ${data.frequencies.length} frequencies
-                    </span>
-                `;
-                
-                document.getElementById('fetch-data-btn').disabled = false;
-                
-            } catch (err) {
-                console.error('Connection error:', err);
-                status.innerHTML = `
-                    <span class="text-red-600 font-semibold">
-                        ❌ Connection failed: ${err.message}<br>
-                        <span class="text-xs">Make sure the URL is correct and the script is deployed as "Anyone" can access</span>
-                    </span>
-                `;
-                sheetsApiUrl = '';
-            }
-            
-            btn.disabled = false;
-            btn.textContent = '🧪 Test Connection';
-        });
+        // Trigger auto-save after each shape
+        triggerAutoSave();
+    }
+    curPath = [];
+    document.getElementById('undo-btn').disabled = !undoStack.length;
+    document.getElementById('redo-btn').disabled = !redoStack.length;
+}
+
+function undo() {
+    if (!undoStack.length) return;
+    const st = undoStack.pop();
+    const d = curData();
+    if (st.key === dataKey()) {
+        redoStack.push({ key: dataKey(), data: JSON.parse(JSON.stringify(d)) });
+        Object.assign(d, st.data);
+        redraw();
+        updateTable();
+    }
+    document.getElementById('undo-btn').disabled = !undoStack.length;
+    document.getElementById('redo-btn').disabled = !redoStack.length;
+}
+
+function redo() {
+    if (!redoStack.length) return;
+    const st = redoStack.pop();
+    const d = curData();
+    if (st.key === dataKey()) {
+        undoStack.push({ key: dataKey(), data: JSON.parse(JSON.stringify(d)) });
+        Object.assign(d, st.data);
+        redraw();
+        updateTable();
+    }
+    document.getElementById('undo-btn').disabled = !undoStack.length;
+    document.getElementById('redo-btn').disabled = !redoStack.length;
+}
+
+// ============================================
+// FILE PARSING - Filename format: "ParticipantName_FrequencyHz_LoudnessdB.png"
+// ============================================
+function parseParticipant(fn) {
+    // Extract participant name: everything before _[number]Hz
+    // Example: "Jiaxin L_62.5Hz_100dB.png" -> "Jiaxin L"
+    const base = fn.replace(/\.png$/i, '');
+    const m = base.match(/^(.+?)_\d+(?:\.\d+)?[Hh]z/i);
+    return m ? m[1].trim() : fn.split('_')[0] || 'Unknown';
+}
+
+function parseFreq(fn) {
+    // Extract frequency: number followed by Hz
+    // Example: "Jiaxin L_62.5Hz_100dB.png" -> 62.5
+    const m = fn.match(/(\d+(?:\.\d+)?)\s*[Hh]z/i);
+    return m ? parseFloat(m[1]) : null;
+}
+
+// ============================================
+// ZIP PROCESSING - NESTED SUPPORT
+// Folder structure: "ParticipantName_FolderNumber_AnythingElse/filename.png"
+// Example: "Jiaxin L_11_Drawings 2/Jiaxin L_62.5Hz_100dB.png"
+// - Participant: "Jiaxin L"
+// - Folder number: 11 (used to determine trial order)
+// - Filename frequency: 62.5Hz
+// Trial numbers are sorted (e.g., 3, 5, 11) and mapped to Trial 1, 2, 3
+// ============================================
+async function processZip(zipFile) {
+    const zip = await JSZip.loadAsync(zipFile);
+    const fileInfos = [];
+    
+    async function extractFromZip(z, pathPrefix = '') {
+        const entries = Object.entries(z.files);
+        log(`Scanning ${entries.length} entries in ZIP...`);
         
-        // Fetch and visualize
-        document.getElementById('fetch-data-btn').addEventListener('click', async function() {
-            if (!sheetsApiUrl) {
-                showError('Please configure and test the connection first');
-                return;
-            }
+        for (const [path, file] of entries) {
+            if (file.dir) continue;
+            const fullPath = pathPrefix + path;
             
-            try {
-                updateProgress(10, 'Fetching data from Google Sheets...');
+            if (path.toLowerCase().endsWith('.png')) {
+                const filename = path.split('/').pop();
+                const pathParts = fullPath.split('/').filter(p => p.length > 0);
                 
-                const response = await fetch(sheetsApiUrl + '?action=getAllData', {
-                    method: 'GET',
-                    mode: 'cors'
-                });
+                log(`Processing: ${fullPath}`);
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
+                // Find the participant folder with format "Name_Number_..." 
+                let folderNum = null;
+                let partPath = null;
                 
-                const data = await response.json();
-                
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-                
-                sheetsData = data;
-                
-                updateProgress(30, `Processing ${data.shapes.length} shapes...`);
-                
-                // Organize data by frequency and phase
-                const participantData = {};
-                FREQUENCIES.forEach(freq => {
-                    participantData[freq] = { red: [], blue: [] };
-                });
-                
-                data.shapes.forEach(shape => {
-                    if (participantData[shape.frequency]) {
-                        participantData[shape.frequency][shape.phase].push(shape);
-                    }
-                });
-                
-                updateProgress(50, 'Generating 11 composite images (one per frequency)...');
-                
-                // Generate visualizations
-                const vizGrid = document.getElementById('visualization-grid');
-                vizGrid.innerHTML = '';
-                generatedCanvases = {};
-                statisticsData = [];
-                
-                let imagesGenerated = 0;
-                
-                FREQUENCIES.forEach(freq => {
-                    const redData = participantData[freq].red;
-                    const blueData = participantData[freq].blue;
+                // Look through path parts for folder matching "ParticipantName_Number_..."
+                // Example: "Jiaxin L_11_Drawings 2"
+                for (let i = 0; i < pathParts.length - 1; i++) {
+                    const part = pathParts[i];
                     
-                    if (redData.length === 0 && blueData.length === 0) return;
-                    
-                    const canvas = drawVisualization(freq, redData, blueData);
-                    generatedCanvases[freq] = canvas;
-                    imagesGenerated++;
-                    
-                    const container = document.createElement('div');
-                    container.className = 'canvas-container p-4 cursor-pointer hover:shadow-xl transition-shadow';
-                    container.appendChild(canvas);
-                    
-                    const info = document.createElement('div');
-                    info.className = 'mt-2 text-center text-sm';
-                    info.innerHTML = `
-                        <p class="font-bold text-gray-800">${freq} Hz</p>
-                        <p class="text-xs text-gray-600">
-                            <span class="text-red-600">Red: ${redData.length}</span> | 
-                            <span class="text-blue-600">Blue: ${blueData.length}</span>
-                        </p>
-                        <p class="text-xs text-gray-400 mt-1">Click to download</p>
-                    `;
-                    container.appendChild(info);
-                    
-                    container.addEventListener('click', () => {
-                        const link = document.createElement('a');
-                        link.download = `sound_object_composite_${freq}Hz.png`;
-                        link.href = canvas.toDataURL();
-                        link.click();
-                    });
-                    
-                    vizGrid.appendChild(container);
-                });
-                
-                updateProgress(75, `Generated ${imagesGenerated} composite images. Calculating statistics...`);
-                
-                // Generate statistics table
-                const statsBody = document.getElementById('statistics-body');
-                statsBody.innerHTML = '';
-                
-                FREQUENCIES.forEach(freq => {
-                    const redData = participantData[freq].red;
-                    const blueData = participantData[freq].blue;
-                    
-                    if (redData.length === 0 && blueData.length === 0) return;
-                    
-                    // Red statistics
-                    if (redData.length > 0) {
-                        const stats = calculateStats(redData);
-                        statisticsData.push({
-                            frequency: freq,
-                            phase: 'Red (In-Phase)',
-                            ...stats
-                        });
-                        
-                        const row = document.createElement('tr');
-                        row.className = 'hover:bg-gray-50';
-                        row.innerHTML = `
-                            <td class="px-4 py-3 text-sm font-semibold">${freq} Hz</td>
-                            <td class="px-4 py-3 text-sm"><span class="inline-block w-3 h-3 rounded-full bg-red-500 mr-2"></span>Red (In-Phase)</td>
-                            <td class="px-4 py-3 text-sm">${stats.n}</td>
-                            <td class="px-4 py-3 text-sm font-mono">${stats.meanArea.toFixed(3)}</td>
-                            <td class="px-4 py-3 text-sm font-mono">${stats.sdArea.toFixed(3)}</td>
-                            <td class="px-4 py-3 text-sm font-mono">${stats.meanRadius.toFixed(3)}</td>
-                            <td class="px-4 py-3 text-sm font-mono">${stats.sdRadius.toFixed(3)}</td>
-                            <td class="px-4 py-3 text-sm font-mono">${stats.meanCentroidX.toFixed(3)}</td>
-                            <td class="px-4 py-3 text-sm font-mono">${stats.meanCentroidY.toFixed(3)}</td>
-                        `;
-                        statsBody.appendChild(row);
+                    // Pattern: "Name_Number" or "Name_Number_AnythingElse"
+                    // Captures: participant name, folder number
+                    const match = part.match(/^(.+?)_(\d+)(?:_.*)?$/);
+                    if (match) {
+                        partPath = match[1].trim();
+                        folderNum = parseInt(match[2]);
+                        log(`  Matched folder pattern: "${part}" → participant="${partPath}", folderNum=${folderNum}`);
+                        break;
                     }
                     
-                    // Blue statistics
-                    if (blueData.length > 0) {
-                        const stats = calculateStats(blueData);
-                        statisticsData.push({
-                            frequency: freq,
-                            phase: 'Blue (Out-of-Phase)',
-                            ...stats
-                        });
-                        
-                        const row = document.createElement('tr');
-                        row.className = 'hover:bg-gray-50';
-                        row.innerHTML = `
-                            <td class="px-4 py-3 text-sm font-semibold">${freq} Hz</td>
-                            <td class="px-4 py-3 text-sm"><span class="inline-block w-3 h-3 rounded-full bg-blue-500 mr-2"></span>Blue (Out-of-Phase)</td>
-                            <td class="px-4 py-3 text-sm">${stats.n}</td>
-                            <td class="px-4 py-3 text-sm font-mono">${stats.meanArea.toFixed(3)}</td>
-                            <td class="px-4 py-3 text-sm font-mono">${stats.sdArea.toFixed(3)}</td>
-                            <td class="px-4 py-3 text-sm font-mono">${stats.meanRadius.toFixed(3)}</td>
-                            <td class="px-4 py-3 text-sm font-mono">${stats.sdRadius.toFixed(3)}</td>
-                            <td class="px-4 py-3 text-sm font-mono">${stats.meanCentroidX.toFixed(3)}</td>
-                            <td class="px-4 py-3 text-sm font-mono">${stats.meanCentroidY.toFixed(3)}</td>
-                        `;
-                        statsBody.appendChild(row);
+                    // Also check for purely numeric folders (backup)
+                    if (/^\d+$/.test(part)) {
+                        folderNum = parseInt(part);
+                        // Look for participant in previous folder
+                        if (i > 0) {
+                            partPath = pathParts[i - 1];
+                        }
+                        log(`  Found numeric folder: ${part} → folderNum=${folderNum}, participant=${partPath}`);
+                        break;
                     }
+                }
+                
+                // If still no participant, get from filename
+                const participant = partPath || parseParticipant(filename);
+                
+                fileInfos.push({
+                    filename,
+                    file,
+                    folderNum,
+                    participant,
+                    fullPath
                 });
                 
-                // Summary
-                const participants = new Set();
-                data.shapes.forEach(s => participants.add(s.participant));
+                log(`  Result: participant="${participant}", folderNum=${folderNum}, freq=${parseFreq(filename)}Hz`);
                 
-                const summaryContent = document.getElementById('summary-content');
-                summaryContent.innerHTML = `
-                    <div class="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
-                        <div class="text-3xl font-bold text-blue-700">${participants.size}</div>
-                        <div class="text-sm text-gray-600 font-semibold">Participants</div>
-                    </div>
-                    <div class="bg-emerald-50 p-4 rounded-lg border-2 border-emerald-200">
-                        <div class="text-3xl font-bold text-emerald-700">${data.shapes.length}</div>
-                        <div class="text-sm text-gray-600 font-semibold">Total Shapes</div>
-                    </div>
-                    <div class="bg-purple-50 p-4 rounded-lg border-2 border-purple-200">
-                        <div class="text-3xl font-bold text-purple-700">${imagesGenerated}</div>
-                        <div class="text-sm text-gray-600 font-semibold">Composite Images</div>
-                    </div>
-                    <div class="bg-amber-50 p-4 rounded-lg border-2 border-amber-200">
-                        <div class="text-xl font-bold text-amber-700">📊 "Data" Tab</div>
-                        <div class="text-sm text-gray-600 font-semibold">Source</div>
-                    </div>
-                `;
-                
-                updateProgress(100, 'Complete!');
-                
-                document.getElementById('data-summary').classList.remove('hidden');
-                document.getElementById('visualization-container').classList.remove('hidden');
-                document.getElementById('statistics-container').classList.remove('hidden');
-                document.getElementById('export-combined-container').classList.remove('hidden');
-                
-                setTimeout(() => {
-                    document.getElementById('progress-container').classList.add('hidden');
-                }, 2000);
-                
-            } catch (err) {
-                console.error('Error:', err);
-                showError(err.message);
-                updateProgress(0, '');
-                document.getElementById('progress-container').classList.add('hidden');
-            }
-        });
-        
-        // Export combined image
-        document.getElementById('export-combined-btn').addEventListener('click', function() {
-            if (Object.keys(generatedCanvases).length === 0) {
-                alert('No images to combine. Please generate visualizations first.');
-                return;
-            }
-            
-            const btn = this;
-            btn.disabled = true;
-            btn.textContent = '⏳ Creating combined image...';
-            
-            setTimeout(() => {
+            } else if (path.toLowerCase().endsWith('.zip')) {
+                // Handle nested ZIP files
                 try {
-                    const combinedCanvas = createCombinedImage();
-                    
-                    const link = document.createElement('a');
-                    link.download = 'sound_object_all_frequencies_combined.png';
-                    link.href = combinedCanvas.toDataURL();
-                    link.click();
-                    
-                    btn.disabled = false;
-                    btn.innerHTML = `
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                        </svg>
-                        Download Combined Image (All Frequencies)
-                    `;
-                } catch (err) {
-                    console.error('Error creating combined image:', err);
-                    alert('Error creating combined image: ' + err.message);
-                    btn.disabled = false;
-                    btn.innerHTML = 'Download Combined Image (All Frequencies)';
+                    log(`Found nested ZIP: ${path}`);
+                    const blob = await file.async('blob');
+                    const nested = await JSZip.loadAsync(blob);
+                    await extractFromZip(nested, fullPath.replace(/\.zip$/i, '/'));
+                } catch (e) {
+                    console.warn('Nested ZIP error:', path, e);
+                    log(`Warning: Could not process nested ZIP: ${path}`);
                 }
-            }, 100);
-        });
-        
-        // Export statistics to Google Sheets
-        document.getElementById('export-stats-btn').addEventListener('click', async function() {
-            if (statisticsData.length === 0) {
-                alert('No statistics to export. Please generate visualizations first.');
-                return;
             }
-            
-            const btn = this;
-            btn.disabled = true;
-            btn.textContent = '⏳ Exporting to Google Sheets...';
-            
-            try {
-                const response = await fetch(sheetsApiUrl + '?action=exportStatistics', {
-                    method: 'POST',
-                    mode: 'cors',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        statistics: statisticsData,
-                        timestamp: new Date().toISOString()
-                    })
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                
-                const result = await response.json();
-                
-                if (result.error) {
-                    throw new Error(result.error);
-                }
-                
-                alert(`✅ Statistics exported successfully to sheet: "${result.sheetName}"`);
-                
-            } catch (err) {
-                console.error('Error exporting statistics:', err);
-                alert('Error exporting statistics: ' + err.message + '\n\nMake sure the Apps Script has been updated with the exportStatistics function.');
-            }
-            
-            btn.disabled = false;
-            btn.innerHTML = `
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                </svg>
-                Export Statistics to Google Sheets
-            `;
-        });
+        }
+    }
+    
+    await extractFromZip(zip);
+    return fileInfos;
+}
+
+async function handleZip(file) {
+    document.getElementById('upload-log').innerHTML = '';
+    document.getElementById('upload-log').classList.remove('hidden');
+    log('=== Processing ZIP file ===');
+    log(`Filename: ${file.name}`);
+    status('Loading ZIP...');
+    
+    try {
+        const infos = await processZip(file);
+        log(`=== Found ${infos.length} PNG files total ===`);
         
-        // Create combined image (3 rows x 4 columns)
-        function createCombinedImage() {
-            const cols = 4;
-            const rows = 3;
-            const padding = 20;
-            const imageWidth = CANVAS_SIZE;
-            const imageHeight = CANVAS_SIZE;
-            
-            const combinedWidth = (cols * imageWidth) + ((cols + 1) * padding);
-            const combinedHeight = (rows * imageHeight) + ((rows + 1) * padding);
-            
-            const combinedCanvas = document.createElement('canvas');
-            combinedCanvas.width = combinedWidth;
-            combinedCanvas.height = combinedHeight;
-            const ctx = combinedCanvas.getContext('2d');
-            
-            // White background
-            ctx.fillStyle = 'white';
-            ctx.fillRect(0, 0, combinedWidth, combinedHeight);
-            
-            // Draw each frequency canvas
-            const frequencies = Object.keys(generatedCanvases).map(f => parseFloat(f)).sort((a, b) => a - b);
-            
-            frequencies.forEach((freq, index) => {
-                const canvas = generatedCanvases[freq];
-                const col = index % cols;
-                const row = Math.floor(index / cols);
-                
-                const x = padding + (col * (imageWidth + padding));
-                const y = padding + (row * (imageHeight + padding));
-                
-                ctx.drawImage(canvas, x, y);
+        if (!infos.length) {
+            status('No PNG files found in ZIP');
+            return;
+        }
+        
+        // Build participant -> folder numbers mapping
+        const partFolders = {};
+        for (const i of infos) {
+            const p = i.participant;
+            if (!partFolders[p]) partFolders[p] = new Set();
+            if (i.folderNum !== null) {
+                partFolders[p].add(i.folderNum);
+            }
+        }
+        
+        // Log what we found
+        log('=== Participants and their folder numbers ===');
+        for (const [p, folders] of Object.entries(partFolders)) {
+            log(`  ${p}: folders = [${Array.from(folders).sort((a,b)=>a-b).join(', ')}]`);
+        }
+        
+        // Map folder numbers to trial 1, 2, 3 (sorted lowest to highest)
+        trialMapping = {};
+        log('=== Trial Mapping ===');
+        for (const [p, folders] of Object.entries(partFolders)) {
+            const sorted = Array.from(folders).sort((a, b) => a - b);
+            trialMapping[p.toLowerCase()] = {};
+            sorted.forEach((fn, idx) => {
+                trialMapping[p.toLowerCase()][fn] = idx + 1;
             });
-            
-            return combinedCanvas;
+            if (sorted.length > 0) {
+                log(`  ${p}: folders [${sorted.join(', ')}] → Trial [${sorted.map((_, i) => i + 1).join(', ')}]`);
+            } else {
+                log(`  ${p}: No folder numbers found - defaulting to Trial 1`);
+            }
         }
         
-        // Calculate statistics
-        function calculateStats(dataArray) {
-            const areas = dataArray.map(d => d.area);
-            const radii = dataArray.map(d => d.radius);
-            const xValues = dataArray.map(d => d.centroid.x);
-            const yValues = dataArray.map(d => d.centroid.y);
-            
-            return {
-                n: dataArray.length,
-                meanArea: mean(areas),
-                sdArea: stdDev(areas),
-                meanRadius: mean(radii),
-                sdRadius: stdDev(radii),
-                meanCentroidX: mean(xValues),
-                meanCentroidY: mean(yValues)
-            };
-        }
+        // Load images and build data structure
+        const participants = new Map();
+        let loadedCount = 0;
+        let skippedCount = 0;
         
-        function mean(arr) {
-            return arr.reduce((sum, val) => sum + val, 0) / arr.length;
-        }
-        
-        function stdDev(arr) {
-            const avg = mean(arr);
-            const squareDiffs = arr.map(val => Math.pow(val - avg, 2));
-            return Math.sqrt(mean(squareDiffs));
-        }
-        
-        // Draw visualization
-        function drawVisualization(frequency, redData, blueData) {
-            const canvas = document.createElement('canvas');
-            canvas.width = CANVAS_SIZE;
-            canvas.height = CANVAS_SIZE;
-            const ctx = canvas.getContext('2d');
+        log('=== Loading Images ===');
+        for (const info of infos) {
+            const hz = parseFreq(info.filename);
+            const freq = FREQUENCIES.find(f => f.hz === hz);
             
-            // White background
-            ctx.fillStyle = 'white';
-            ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-            
-            const center = CANVAS_SIZE / 2;
-            const scale = SCALE_FACTOR;
-            
-            // Draw grid lines (light gray)
-            ctx.strokeStyle = '#e5e7eb';
-            ctx.lineWidth = 1;
-            
-            // Vertical lines
-            for (let i = -UNIT_RANGE; i <= UNIT_RANGE; i++) {
-                const x = center + (i * scale);
-                ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, CANVAS_SIZE);
-                ctx.stroke();
+            // Only process frequencies 62.5 to 2000 Hz
+            if (!freq) {
+                skippedCount++;
+                continue;
             }
             
-            // Horizontal lines
-            for (let i = -UNIT_RANGE; i <= UNIT_RANGE; i++) {
-                const y = center - (i * scale);
-                ctx.beginPath();
-                ctx.moveTo(0, y);
-                ctx.lineTo(CANVAS_SIZE, y);
-                ctx.stroke();
+            const p = info.participant;
+            
+            // Get trial number from mapping
+            let trialNum = 1;
+            if (info.folderNum !== null && trialMapping[p.toLowerCase()] && trialMapping[p.toLowerCase()][info.folderNum]) {
+                trialNum = trialMapping[p.toLowerCase()][info.folderNum];
             }
+            const t = `Trial ${trialNum}`;
             
-            // Draw axes (darker)
-            ctx.strokeStyle = '#9ca3af';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(0, center);
-            ctx.lineTo(CANVAS_SIZE, center);
-            ctx.moveTo(center, 0);
-            ctx.lineTo(center, CANVAS_SIZE);
-            ctx.stroke();
+            // Load image
+            const blob = await info.file.async('blob');
+            const img = await loadImg(URL.createObjectURL(blob));
             
-            // Draw 3-unit reference circle (solid black)
-            ctx.beginPath();
-            ctx.arc(center, center, BACKGROUND_CIRCLE_RADIUS_UNITS * scale, 0, 2 * Math.PI);
-            ctx.strokeStyle = '#000000';
-            ctx.lineWidth = 1;
-            ctx.stroke();
+            const ik = `${p}|${t}|${fKey(freq)}`;
+            images[ik] = img;
             
-            // Helper function to draw individual participant shapes in gray
-            function drawGrayShapes(dataArray) {
-                ctx.strokeStyle = '#9ca3af';
-                ctx.lineWidth = 1;
-                ctx.globalAlpha = 0.5;
-                
-                dataArray.forEach(shape => {
-                    const x = center + (shape.centroid.x * scale);
-                    const y = center - (shape.centroid.y * scale);
-                    const r = shape.radius * scale;
-                    
-                    ctx.beginPath();
-                    ctx.arc(x, y, r, 0, 2 * Math.PI);
-                    ctx.stroke();
-                });
-                
-                ctx.globalAlpha = 1.0;
+            // Build tab structure
+            if (!participants.has(p)) participants.set(p, new Map());
+            if (!participants.get(p).has(t)) participants.get(p).set(t, new Set());
+            participants.get(p).get(t).add(freq.hz);
+            
+            ensureData(p, t, fKey(freq));
+            loadedCount++;
+        }
+        
+        if (!participants.size) {
+            status('No valid images found (need 62.5-2000 Hz frequencies)');
+            log(`Skipped ${skippedCount} files (outside 62.5-2000 Hz range)`);
+            return;
+        }
+        
+        // Log final structure
+        log('=== Final Tab Structure ===');
+        for (const [p, trials] of participants) {
+            const trialList = Array.from(trials.keys()).sort();
+            log(`  ${p}: ${trialList.length} trials - [${trialList.join(', ')}]`);
+            for (const [t, freqs] of trials) {
+                log(`    ${t}: ${freqs.size} frequencies - [${Array.from(freqs).sort((a,b)=>a-b).join(', ')}]`);
             }
-            
-            // Helper function to draw averaged circle
-            function drawAveragedCircle(dataArray, color, isDashed) {
-                if (dataArray.length === 0) return;
-                
-                // Calculate averages
-                const avgX = dataArray.reduce((sum, s) => sum + s.centroid.x, 0) / dataArray.length;
-                const avgY = dataArray.reduce((sum, s) => sum + s.centroid.y, 0) / dataArray.length;
-                const avgR = dataArray.reduce((sum, s) => sum + s.radius, 0) / dataArray.length;
-                
-                const x = center + (avgX * scale);
-                const y = center - (avgY * scale);
-                const r = avgR * scale;
-                
-                ctx.strokeStyle = color;
-                ctx.lineWidth = 3;
-                
-                if (isDashed) {
-                    ctx.setLineDash([8, 4]);
+        }
+        
+        log(`=== Summary: ${loadedCount} loaded, ${skippedCount} skipped ===`);
+        
+        buildTabs(participants);
+        status(`Loaded ${loadedCount} images from ${participants.size} participants`);
+        
+    } catch (e) {
+        console.error(e);
+        status('Error: ' + e.message);
+        log('ERROR: ' + e.message);
+        log(e.stack);
+    }
+}
+
+function loadImg(src) {
+    return new Promise((res, rej) => {
+        const img = new Image();
+        img.onload = () => res(img);
+        img.onerror = rej;
+        img.src = src;
+    });
+}
+
+async function handleSingle(file) {
+    try {
+        const img = await loadImg(URL.createObjectURL(file));
+        const p = parseParticipant(file.name) || 'Participant';
+        const t = 'Trial 1';
+        const hz = parseFreq(file.name);
+        const freq = hz ? FREQUENCIES.find(f => f.hz === hz) : FREQUENCIES[0];
+        
+        const ik = `${p}|${t}|${fKey(freq || FREQUENCIES[0])}`;
+        images[ik] = img;
+        ensureData(p, t, fKey(freq || FREQUENCIES[0]));
+        
+        const parts = new Map([[p, new Map([[t, new Set([freq?.hz || 62.5])]])]]);
+        buildTabs(parts);
+        status(`Loaded: ${file.name}`);
+    } catch (e) {
+        status('Error: ' + e.message);
+    }
+}
+
+function handleJson(file) {
+    const r = new FileReader();
+    r.onload = e => {
+        try {
+            const d = JSON.parse(e.target.result);
+            if (d.allData) allData = d.allData;
+            if (d.settings) {
+                if (d.settings.resampleRate) {
+                    resampleRate = d.settings.resampleRate;
+                    document.getElementById('resample-slider').value = resampleRate;
+                    document.getElementById('resample-val').textContent = resampleRate;
                 }
-                
-                ctx.beginPath();
-                ctx.arc(x, y, r, 0, 2 * Math.PI);
-                ctx.stroke();
-                
-                ctx.setLineDash([]);
+                if (d.settings.shapeOpacity !== undefined) {
+                    shapeOpacity = d.settings.shapeOpacity;
+                    document.getElementById('opacity-slider').value = shapeOpacity;
+                    document.getElementById('opacity-val').textContent = shapeOpacity + '%';
+                }
             }
             
-            // Draw all gray background shapes first
-            if (redData.length > 0) {
-                drawGrayShapes(redData);
-            }
-            if (blueData.length > 0) {
-                drawGrayShapes(blueData);
-            }
-            
-            // Draw averaged circles on top
-            if (blueData.length > 0) {
-                drawAveragedCircle(blueData, '#3b82f6', true);
-            }
-            if (redData.length > 0) {
-                drawAveragedCircle(redData, '#dc2626', false);
+            const parts = new Map();
+            for (const p of Object.keys(allData)) {
+                parts.set(p, new Map());
+                for (const t of Object.keys(allData[p])) {
+                    parts.get(p).set(t, new Set());
+                    for (const fk of Object.keys(allData[p][t])) {
+                        const hz = parseFloat(fk);
+                        if (!isNaN(hz)) parts.get(p).get(t).add(hz);
+                    }
+                }
             }
             
-            // Title at top
-            ctx.fillStyle = '#000000';
-            ctx.font = 'bold 18px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText(`${frequency} Hz`, center, 25);
-            
-            // Stats below title
-            const totalShapes = redData.length + blueData.length;
-            const avgRadiusRed = redData.length > 0 
-                ? (redData.reduce((sum, s) => sum + s.radius, 0) / redData.length).toFixed(2)
-                : null;
-            const avgRadiusBlue = blueData.length > 0
-                ? (blueData.reduce((sum, s) => sum + s.radius, 0) / blueData.length).toFixed(2)
-                : null;
-            
-            ctx.font = '12px Arial';
-            ctx.fillStyle = '#666666';
-            
-            let statsText = `N=${totalShapes}`;
-            if (avgRadiusRed && avgRadiusBlue) {
-                const overallAvg = ((parseFloat(avgRadiusRed) + parseFloat(avgRadiusBlue)) / 2).toFixed(2);
-                statsText += `, mean r=${overallAvg} (centroid avg)`;
-            } else if (avgRadiusRed) {
-                statsText += `, mean r=${avgRadiusRed} (centroid avg)`;
-            } else if (avgRadiusBlue) {
-                statsText += `, mean r=${avgRadiusBlue} (centroid avg)`;
+            if (parts.size) {
+                buildTabs(parts);
+                updateGallery();
+                status('JSON imported');
             }
-            
-            ctx.fillText(statsText, center, 45);
-            
-            return canvas;
+        } catch (e) {
+            status('Error: ' + e.message);
         }
-    </script>
+    };
+    r.readAsText(file);
+}
+
+// ============================================
+// TAB BUILDING
+// ============================================
+function buildTabs(participants) {
+    const pSec = document.getElementById('participant-section');
+    const tSec = document.getElementById('trial-section');
+    const fSec = document.getElementById('frequency-section');
+    const pTabs = document.getElementById('participant-tabs');
+    const tTabs = document.getElementById('trial-tabs');
+    const fTabs = document.getElementById('frequency-tabs');
+    
+    pTabs.innerHTML = '';
+    tTabs.innerHTML = '';
+    fTabs.innerHTML = '';
+    
+    pSec.classList.remove('hidden');
+    tSec.classList.remove('hidden');
+    fSec.classList.remove('hidden');
+    
+    const sortedP = Array.from(participants.keys()).sort();
+    let first = true;
+    
+    for (const p of sortedP) {
+        const btn = document.createElement('button');
+        btn.className = `tab-btn px-4 py-2 rounded-xl font-bold text-sm bg-gray-100 shadow${first ? ' active' : ''}`;
+        btn.textContent = p;
+        btn.onclick = () => selectParticipant(p, participants, btn);
+        pTabs.appendChild(btn);
+        
+        if (first) {
+            curParticipant = p;
+            buildTrialTabs(p, participants.get(p));
+            first = false;
+        }
+    }
+}
+
+function buildTrialTabs(p, trials) {
+    const tTabs = document.getElementById('trial-tabs');
+    tTabs.innerHTML = '';
+    
+    const sorted = Array.from(trials.keys()).sort((a, b) => {
+        const na = parseInt(a.replace(/\D/g, '')) || 0;
+        const nb = parseInt(b.replace(/\D/g, '')) || 0;
+        return na - nb;
+    });
+    
+    let first = true;
+    for (const t of sorted) {
+        const btn = document.createElement('button');
+        btn.className = `trial-btn tab-btn px-4 py-2 rounded-xl font-bold text-sm bg-gray-100 shadow${first ? ' active' : ''}`;
+        btn.textContent = t;
+        btn.onclick = () => selectTrial(t, trials.get(t), btn);
+        tTabs.appendChild(btn);
+        
+        if (first) {
+            curTrial = t;
+            buildFreqTabs(trials.get(t));
+            first = false;
+        }
+    }
+}
+
+function buildFreqTabs(freqs) {
+    const fTabs = document.getElementById('frequency-tabs');
+    fTabs.innerHTML = '';
+    
+    let first = true;
+    for (const f of FREQUENCIES) {
+        const btn = document.createElement('button');
+        const hasData = freqs && freqs.has(f.hz);
+        btn.className = `freq-btn tab-btn px-4 py-2 rounded-xl font-bold text-sm shadow ${hasData ? 'bg-gray-100' : 'bg-gray-50 text-gray-400'}${first && hasData ? ' active' : ''}`;
+        btn.textContent = `${f.hz} Hz`;
+        btn.disabled = !hasData;
+        btn.onclick = () => selectFreq(f, btn);
+        fTabs.appendChild(btn);
+        
+        if (first && hasData) {
+            curFreq = f;
+            first = false;
+        }
+    }
+    
+    redraw();
+}
+
+function selectParticipant(p, participants, btn) {
+    curParticipant = p;
+    document.querySelectorAll('#participant-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    buildTrialTabs(p, participants.get(p));
+    undoStack = []; redoStack = [];
+    document.getElementById('undo-btn').disabled = true;
+    document.getElementById('redo-btn').disabled = true;
+}
+
+function selectTrial(t, freqs, btn) {
+    curTrial = t;
+    document.querySelectorAll('#trial-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    buildFreqTabs(freqs);
+    undoStack = []; redoStack = [];
+    document.getElementById('undo-btn').disabled = true;
+    document.getElementById('redo-btn').disabled = true;
+}
+
+function selectFreq(f, btn) {
+    curFreq = f;
+    document.querySelectorAll('#frequency-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    undoStack = []; redoStack = [];
+    document.getElementById('undo-btn').disabled = true;
+    document.getElementById('redo-btn').disabled = true;
+    redraw();
+    updateTable();
+}
+
+// ============================================
+// AVERAGE SHAPES
+// ============================================
+function calcAvg(shapes) {
+    if (!shapes?.length) return null;
+    if (shapes.length === 1) return [...shapes[0]];
+    const maxLen = Math.max(...shapes.map(s => s.length));
+    const norm = shapes.map(s => resample(s, maxLen));
+    const avg = [];
+    for (let i = 0; i < maxLen; i++) {
+        let sx = 0, sy = 0, c = 0;
+        for (const s of norm) {
+            if (i < s.length) { sx += s[i].x; sy += s[i].y; c++; }
+        }
+        if (c) avg.push({ x: sx / c, y: sy / c });
+    }
+    return avg;
+}
+
+function genAvgCur() {
+    const d = curData();
+    if (!d) return status('No data');
+    let gen = false;
+    if (d.red.length) { d.redAvg = calcAvg(d.red); gen = true; }
+    if (d.blue.length) { d.blueAvg = calcAvg(d.blue); gen = true; }
+    if (gen) { redraw(); updateGallery(); status('Generated'); }
+    else status('No shapes');
+}
+
+function clearAvgCur() {
+    const d = curData();
+    if (d) { d.redAvg = null; d.blueAvg = null; redraw(); updateGallery(); status('Cleared'); }
+}
+
+function openModal() {
+    document.getElementById('modal').classList.add('active');
+    const mp = document.getElementById('mod-p');
+    const mt = document.getElementById('mod-t');
+    const mf = document.getElementById('mod-f');
+    mp.innerHTML = ''; mt.innerHTML = ''; mf.innerHTML = '';
+    
+    const ps = new Set(), ts = new Set();
+    for (const p of Object.keys(allData)) {
+        ps.add(p);
+        for (const t of Object.keys(allData[p])) ts.add(t);
+    }
+    
+    Array.from(ps).sort().forEach(p => {
+        mp.innerHTML += `<label class="checkbox-item"><input type="checkbox" value="${p}" checked><span>${p}</span></label>`;
+    });
+    Array.from(ts).sort((a, b) => (parseInt(a.replace(/\D/g, '')) || 0) - (parseInt(b.replace(/\D/g, '')) || 0)).forEach(t => {
+        mt.innerHTML += `<label class="checkbox-item"><input type="checkbox" value="${t}" checked><span>${t}</span></label>`;
+    });
+    FREQUENCIES.forEach(f => {
+        mf.innerHTML += `<label class="checkbox-item"><input type="checkbox" value="${f.hz}" checked><span>${f.hz} Hz</span></label>`;
+    });
+}
+
+function doBulk() {
+    const selP = [...document.querySelectorAll('#mod-p input:checked')].map(c => c.value);
+    const selT = [...document.querySelectorAll('#mod-t input:checked')].map(c => c.value);
+    const selF = [...document.querySelectorAll('#mod-f input:checked')].map(c => parseFloat(c.value));
+    let cnt = 0;
+    for (const p of selP) {
+        if (!allData[p]) continue;
+        for (const t of selT) {
+            if (!allData[p][t]) continue;
+            for (const hz of selF) {
+                const f = FREQUENCIES.find(x => x.hz === hz);
+                if (!f) continue;
+                const d = allData[p][t][fKey(f)];
+                if (!d) continue;
+                if (d.red.length) { d.redAvg = calcAvg(d.red); cnt++; }
+                if (d.blue.length) { d.blueAvg = calcAvg(d.blue); cnt++; }
+            }
+        }
+    }
+    document.getElementById('modal').classList.remove('active');
+    redraw();
+    updateGallery();
+    status(`Generated ${cnt} averages`);
+}
+
+function updateGallery() {
+    const g = document.getElementById('gallery');
+    g.innerHTML = '';
+    let has = false;
+    for (const p of Object.keys(allData).sort()) {
+        for (const t of Object.keys(allData[p]).sort()) {
+            for (const fk of Object.keys(allData[p][t])) {
+                const d = allData[p][t][fk];
+                if (d.redAvg || d.blueAvg) {
+                    has = true;
+                    const card = document.createElement('div');
+                    card.className = 'bg-gray-50 rounded-xl p-3 border';
+                    const cv = document.createElement('canvas');
+                    cv.width = 200; cv.height = 200;
+                    cv.className = 'w-full rounded-lg border bg-white mb-2';
+                    const cx = cv.getContext('2d');
+                    cx.fillStyle = 'white'; cx.fillRect(0, 0, 200, 200);
+                    const sc = 200 / CANVAS_SIZE, op = shapeOpacity / 100;
+                    d.red.forEach(s => drawPreview(cx, s, COLORS.red, sc, op));
+                    d.blue.forEach(s => drawPreview(cx, s, COLORS.blue, sc, op));
+                    if (d.redAvg) drawPreview(cx, d.redAvg, '#991b1b', sc, 1, 3);
+                    if (d.blueAvg) drawPreview(cx, d.blueAvg, '#1e3a8a', sc, 1, 3);
+                    drawMiniGrid(cx, 200);
+                    card.appendChild(cv);
+                    card.innerHTML += `<p class="text-xs font-semibold">${p} - ${t}</p><p class="text-xs text-gray-500">${fk}</p>`;
+                    g.appendChild(card);
+                }
+            }
+        }
+    }
+    if (!has) g.innerHTML = '<div class="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center text-gray-400">No averages yet</div>';
+}
+
+function drawPreview(cx, s, clr, sc, op, lw = 2) {
+    if (!s || s.length < 2) return;
+    cx.save(); cx.globalAlpha = op; cx.strokeStyle = clr; cx.lineWidth = lw;
+    cx.lineCap = 'round'; cx.lineJoin = 'round'; cx.beginPath();
+    const st = unitToCanvas(s[0].x, s[0].y);
+    cx.moveTo(st.x * sc, st.y * sc);
+    for (let i = 1; i < s.length; i++) {
+        const p = unitToCanvas(s[i].x, s[i].y);
+        cx.lineTo(p.x * sc, p.y * sc);
+    }
+    cx.stroke(); cx.restore();
+}
+
+function drawMiniGrid(cx, sz) {
+    const c = sz / 2;
+    cx.strokeStyle = '#e5e7eb'; cx.lineWidth = 0.5;
+    for (let i = 0; i <= sz; i += sz / 20) {
+        cx.beginPath(); cx.moveTo(i, 0); cx.lineTo(i, sz); cx.stroke();
+        cx.beginPath(); cx.moveTo(0, i); cx.lineTo(sz, i); cx.stroke();
+    }
+    cx.strokeStyle = '#6b7280'; cx.lineWidth = 1;
+    cx.beginPath(); cx.moveTo(0, c); cx.lineTo(sz, c); cx.stroke();
+    cx.beginPath(); cx.moveTo(c, 0); cx.lineTo(c, sz); cx.stroke();
+}
+
+// ============================================
+// DATA TABLE
+// ============================================
+function updateTable() {
+    const tb = document.getElementById('data-body');
+    tb.innerHTML = '';
+    let has = false;
+    for (const p of Object.keys(allData).sort()) {
+        for (const t of Object.keys(allData[p]).sort()) {
+            for (const fk of Object.keys(allData[p][t])) {
+                const d = allData[p][t][fk];
+                d.red.forEach((s, i) => {
+                    has = true;
+                    const sm = s.slice(0, 2).map(pt => `(${pt.x.toFixed(1)},${pt.y.toFixed(1)})`).join(' ');
+                    tb.innerHTML += `<tr><td>${p}</td><td>${t}</td><td>${fk}</td><td class="text-red-500">●</td><td>${i + 1}</td><td>${s.length}</td><td>${sm}...</td></tr>`;
+                });
+                d.blue.forEach((s, i) => {
+                    has = true;
+                    const sm = s.slice(0, 2).map(pt => `(${pt.x.toFixed(1)},${pt.y.toFixed(1)})`).join(' ');
+                    tb.innerHTML += `<tr><td>${p}</td><td>${t}</td><td>${fk}</td><td class="text-blue-500">●</td><td>${i + 1}</td><td>${s.length}</td><td>${sm}...</td></tr>`;
+                });
+            }
+        }
+    }
+    if (!has) tb.innerHTML = '<tr><td colspan="7" class="text-center text-gray-400 py-8">No data</td></tr>';
+}
+
+// ============================================
+// EXPORTS
+// ============================================
+function expCSV() {
+    let csv = 'Participant,Trial,Frequency,Color,Shape,Point,X,Y,IsAvg\n';
+    for (const p of Object.keys(allData)) {
+        for (const t of Object.keys(allData[p])) {
+            for (const fk of Object.keys(allData[p][t])) {
+                const d = allData[p][t][fk];
+                d.red.forEach((s, si) => s.forEach((pt, pi) => { csv += `${p},${t},${fk},Red,${si + 1},${pi + 1},${pt.x.toFixed(6)},${pt.y.toFixed(6)},false\n`; }));
+                d.blue.forEach((s, si) => s.forEach((pt, pi) => { csv += `${p},${t},${fk},Blue,${si + 1},${pi + 1},${pt.x.toFixed(6)},${pt.y.toFixed(6)},false\n`; }));
+                if (d.redAvg) d.redAvg.forEach((pt, pi) => { csv += `${p},${t},${fk},Red,Avg,${pi + 1},${pt.x.toFixed(6)},${pt.y.toFixed(6)},true\n`; });
+                if (d.blueAvg) d.blueAvg.forEach((pt, pi) => { csv += `${p},${t},${fk},Blue,Avg,${pi + 1},${pt.x.toFixed(6)},${pt.y.toFixed(6)},true\n`; });
+            }
+        }
+    }
+    saveAs(new Blob([csv], { type: 'text/csv' }), `contour_${new Date().toISOString().slice(0, 10)}.csv`);
+    status('CSV exported');
+}
+
+function expJSON() {
+    const ex = { exportDate: new Date().toISOString(), version: '2.0', settings: { resampleRate, shapeOpacity, brushSize }, allData };
+    saveAs(new Blob([JSON.stringify(ex, null, 2)], { type: 'application/json' }), `contour_${new Date().toISOString().slice(0, 10)}.json`);
+    status('JSON exported');
+}
+
+async function expSheets() {
+    const url = document.getElementById('sheets-url').value.trim();
+    if (!url) return status('Enter URL');
+    localStorage.setItem('sheetsUrl', url);
+    try {
+        status('Exporting...');
+        await fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'export', allData, settings: { resampleRate, shapeOpacity, brushSize } }) });
+        status('Sent to Sheets');
+    } catch (e) { status('Error: ' + e.message); }
+}
+
+async function impSheets() {
+    const url = document.getElementById('sheets-url').value.trim();
+    if (!url) return status('Enter URL');
+    try {
+        status('Importing...');
+        const res = await fetch(url + '?action=import');
+        const d = await res.json();
+        if (d.allData) {
+            allData = d.allData;
+            const parts = new Map();
+            for (const p of Object.keys(allData)) {
+                parts.set(p, new Map());
+                for (const t of Object.keys(allData[p])) {
+                    parts.get(p).set(t, new Set());
+                    for (const fk of Object.keys(allData[p][t])) {
+                        const hz = parseFloat(fk);
+                        if (!isNaN(hz)) parts.get(p).get(t).add(hz);
+                    }
+                }
+            }
+            buildTabs(parts);
+            updateGallery();
+            status('Imported');
+        }
+    } catch (e) { status('Error: ' + e.message); }
+}
+
+async function expDrive() {
+    const url = document.getElementById('drive-url').value.trim();
+    if (!url) return status('Enter URL');
+    localStorage.setItem('driveUrl', url);
+    const imgs = [];
+    for (const p of Object.keys(allData)) {
+        for (const t of Object.keys(allData[p])) {
+            for (const fk of Object.keys(allData[p][t])) {
+                const d = allData[p][t][fk];
+                if (d.redAvg || d.blueAvg) {
+                    imgs.push({ filename: `${p}_${t}_${fk}_avg.png`, data: genImg(p, t, fk, d).split(',')[1] });
+                }
+            }
+        }
+    }
+    if (!imgs.length) return status('No averages');
+    try {
+        status('Uploading...');
+        await fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ images: imgs }) });
+        status(`${imgs.length} images sent`);
+    } catch (e) { status('Error: ' + e.message); }
+}
+
+function genImg(p, t, fk, d) {
+    const tc = document.createElement('canvas');
+    tc.width = tc.height = CANVAS_SIZE;
+    const cx = tc.getContext('2d');
+    cx.fillStyle = 'white'; cx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    const op = shapeOpacity / 100;
+    
+    d.red.forEach(s => { if (s.length < 2) return; cx.save(); cx.globalAlpha = op; cx.strokeStyle = COLORS.red; cx.lineWidth = brushSize; cx.lineCap = 'round'; cx.beginPath(); const st = unitToCanvas(s[0].x, s[0].y); cx.moveTo(st.x, st.y); for (let i = 1; i < s.length; i++) { const pt = unitToCanvas(s[i].x, s[i].y); cx.lineTo(pt.x, pt.y); } cx.stroke(); cx.restore(); });
+    d.blue.forEach(s => { if (s.length < 2) return; cx.save(); cx.globalAlpha = op; cx.strokeStyle = COLORS.blue; cx.lineWidth = brushSize; cx.lineCap = 'round'; cx.beginPath(); const st = unitToCanvas(s[0].x, s[0].y); cx.moveTo(st.x, st.y); for (let i = 1; i < s.length; i++) { const pt = unitToCanvas(s[i].x, s[i].y); cx.lineTo(pt.x, pt.y); } cx.stroke(); cx.restore(); });
+    
+    if (d.redAvg?.length >= 2) { cx.strokeStyle = '#991b1b'; cx.lineWidth = 4; cx.lineCap = 'round'; cx.beginPath(); const st = unitToCanvas(d.redAvg[0].x, d.redAvg[0].y); cx.moveTo(st.x, st.y); for (let i = 1; i < d.redAvg.length; i++) { const pt = unitToCanvas(d.redAvg[i].x, d.redAvg[i].y); cx.lineTo(pt.x, pt.y); } cx.stroke(); }
+    if (d.blueAvg?.length >= 2) { cx.strokeStyle = '#1e3a8a'; cx.lineWidth = 4; cx.lineCap = 'round'; cx.beginPath(); const st = unitToCanvas(d.blueAvg[0].x, d.blueAvg[0].y); cx.moveTo(st.x, st.y); for (let i = 1; i < d.blueAvg.length; i++) { const pt = unitToCanvas(d.blueAvg[i].x, d.blueAvg[i].y); cx.lineTo(pt.x, pt.y); } cx.stroke(); }
+    
+    // Grid
+    cx.strokeStyle = '#e5e7eb'; cx.lineWidth = 1;
+    for (let i = -UNIT_RANGE + 1; i < UNIT_RANGE; i++) { if (i === 0) continue; const c = unitToCanvas(i, i); cx.beginPath(); cx.moveTo(0, c.y); cx.lineTo(CANVAS_SIZE, c.y); cx.stroke(); cx.beginPath(); cx.moveTo(c.x, 0); cx.lineTo(c.x, CANVAS_SIZE); cx.stroke(); }
+    cx.strokeStyle = '#6b7280'; cx.lineWidth = 2;
+    cx.beginPath(); cx.moveTo(0, CENTER); cx.lineTo(CANVAS_SIZE, CENTER); cx.stroke();
+    cx.beginPath(); cx.moveTo(CENTER, 0); cx.lineTo(CENTER, CANVAS_SIZE); cx.stroke();
+    
+    cx.fillStyle = '#1f2937'; cx.font = 'bold 24px sans-serif'; cx.textAlign = 'center';
+    cx.fillText(`${p} - ${t} - ${fk}`, CENTER, 40);
+    
+    return tc.toDataURL('image/png');
+}
+
+// ============================================
+// CLOUD COLLABORATION - GOOGLE SHEETS
+// ============================================
+let autoCloudSave = false;
+let cloudSaveTimeout = null;
+
+function getCloudUrl() {
+    return document.getElementById('cloud-url').value.trim();
+}
+
+function getTracerName() {
+    return document.getElementById('tracer-name').value.trim();
+}
+
+function setCloudStatus(msg, isError = false) {
+    const el = document.getElementById('cloud-status');
+    el.textContent = msg;
+    el.className = isError ? 'text-xs text-red-600 mt-3' : 'text-xs text-green-600 mt-3';
+}
+
+async function saveToCloud() {
+    const url = getCloudUrl();
+    const tracerName = getTracerName();
+    
+    if (!url) {
+        setCloudStatus('❌ Enter Apps Script URL', true);
+        return;
+    }
+    if (!tracerName) {
+        setCloudStatus('❌ Enter your tracer name', true);
+        return;
+    }
+    
+    // Save settings locally
+    localStorage.setItem('cloudUrl', url);
+    localStorage.setItem('tracerName', tracerName);
+    
+    const saveData = {
+        action: 'saveProgress',
+        tracerName: tracerName,
+        savedAt: new Date().toISOString(),
+        allData: allData,
+        settings: { resampleRate, shapeOpacity, brushSize }
+    };
+    
+    try {
+        setCloudStatus('☁️ Saving to cloud...');
+        status('Saving to cloud...');
+        
+        const response = await fetch(url, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(saveData)
+        });
+        
+        setCloudStatus(`✅ Saved as "${tracerName}" at ${new Date().toLocaleTimeString()}`);
+        status('Saved to cloud');
+    } catch (e) {
+        setCloudStatus('❌ Save failed: ' + e.message, true);
+        status('Cloud save failed');
+    }
+}
+
+async function loadFromCloud(tracerNameOverride = null) {
+    const url = getCloudUrl();
+    const tracerName = tracerNameOverride || getTracerName();
+    
+    if (!url) {
+        setCloudStatus('❌ Enter Apps Script URL', true);
+        return;
+    }
+    if (!tracerName) {
+        setCloudStatus('❌ Enter tracer name to load', true);
+        return;
+    }
+    
+    try {
+        setCloudStatus('☁️ Loading from cloud...');
+        status('Loading from cloud...');
+        
+        const response = await fetch(`${url}?action=loadProgress&tracerName=${encodeURIComponent(tracerName)}`);
+        const data = await response.json();
+        
+        if (data.error) {
+            setCloudStatus('❌ ' + data.error, true);
+            status('Load failed: ' + data.error);
+            return;
+        }
+        
+        if (data.allData) {
+            allData = data.allData;
+            
+            if (data.settings) {
+                if (data.settings.resampleRate) {
+                    resampleRate = data.settings.resampleRate;
+                    document.getElementById('resample-slider').value = resampleRate;
+                    document.getElementById('resample-val').textContent = resampleRate;
+                }
+                if (data.settings.shapeOpacity !== undefined) {
+                    shapeOpacity = data.settings.shapeOpacity;
+                    document.getElementById('opacity-slider').value = shapeOpacity;
+                    document.getElementById('opacity-val').textContent = shapeOpacity + '%';
+                }
+                if (data.settings.brushSize) {
+                    brushSize = data.settings.brushSize;
+                    document.getElementById('brush-slider').value = brushSize;
+                    document.getElementById('brush-val').textContent = brushSize;
+                }
+            }
+            
+            // Rebuild tabs
+            rebuildTabsFromData();
+            
+            const savedTime = data.savedAt ? new Date(data.savedAt).toLocaleString() : 'unknown time';
+            setCloudStatus(`✅ Loaded "${tracerName}" (saved ${savedTime})`);
+            status('Loaded from cloud');
+        } else {
+            setCloudStatus('⚠️ No data found for ' + tracerName);
+        }
+    } catch (e) {
+        setCloudStatus('❌ Load failed: ' + e.message, true);
+        status('Cloud load failed');
+    }
+}
+
+async function listTracers() {
+    const url = getCloudUrl();
+    if (!url) {
+        setCloudStatus('❌ Enter Apps Script URL', true);
+        return;
+    }
+    
+    try {
+        setCloudStatus('☁️ Fetching tracer list...');
+        
+        const response = await fetch(`${url}?action=listTracers`);
+        const data = await response.json();
+        
+        const select = document.getElementById('tracer-select');
+        select.innerHTML = '<option value="">-- Select tracer to load --</option>';
+        
+        if (data.tracers && data.tracers.length > 0) {
+            data.tracers.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.name;
+                opt.textContent = `${t.name} (${t.shapeCount} shapes, saved ${new Date(t.savedAt).toLocaleDateString()})`;
+                select.appendChild(opt);
+            });
+            setCloudStatus(`✅ Found ${data.tracers.length} tracers`);
+        } else {
+            setCloudStatus('⚠️ No tracers found');
+        }
+    } catch (e) {
+        setCloudStatus('❌ Failed to list tracers: ' + e.message, true);
+    }
+}
+
+async function mergeAllData() {
+    const url = getCloudUrl();
+    if (!url) {
+        setCloudStatus('❌ Enter Apps Script URL', true);
+        return;
+    }
+    
+    if (!confirm('This will load and merge ALL tracers\' data. Your current unsaved work will be replaced. Continue?')) {
+        return;
+    }
+    
+    try {
+        setCloudStatus('☁️ Merging all tracer data...');
+        status('Merging all data...');
+        
+        const response = await fetch(`${url}?action=mergeAll`);
+        const data = await response.json();
+        
+        if (data.error) {
+            setCloudStatus('❌ ' + data.error, true);
+            return;
+        }
+        
+        if (data.allData) {
+            allData = data.allData;
+            rebuildTabsFromData();
+            setCloudStatus(`✅ Merged data from ${data.tracerCount} tracers`);
+            status('All data merged');
+        }
+    } catch (e) {
+        setCloudStatus('❌ Merge failed: ' + e.message, true);
+    }
+}
+
+function loadSelectedTracer() {
+    const select = document.getElementById('tracer-select');
+    const tracerName = select.value;
+    if (tracerName) {
+        loadFromCloud(tracerName);
+    }
+}
+
+function toggleAutoCloudSave() {
+    autoCloudSave = !autoCloudSave;
+    const btn = document.getElementById('auto-cloud-toggle');
+    btn.textContent = autoCloudSave ? '⚡ Auto-Save: ON' : '⚡ Auto-Save: OFF';
+    btn.className = autoCloudSave 
+        ? 'px-4 py-2 rounded-xl font-bold text-sm bg-green-500 text-white shadow'
+        : 'px-4 py-2 rounded-xl font-bold text-sm bg-amber-500 text-white shadow';
+    
+    localStorage.setItem('autoCloudSave', autoCloudSave);
+    status(autoCloudSave ? 'Auto-save to cloud enabled' : 'Auto-save disabled');
+}
+
+function triggerAutoSave() {
+    if (!autoCloudSave) return;
+    if (!getCloudUrl() || !getTracerName()) return;
+    
+    if (cloudSaveTimeout) clearTimeout(cloudSaveTimeout);
+    cloudSaveTimeout = setTimeout(() => {
+        saveToCloud();
+    }, 2000); // Save 2 seconds after last shape
+}
+
+function rebuildTabsFromData() {
+    const parts = new Map();
+    for (const p of Object.keys(allData)) {
+        parts.set(p, new Map());
+        for (const t of Object.keys(allData[p])) {
+            parts.get(p).set(t, new Set());
+            for (const fk of Object.keys(allData[p][t])) {
+                const hz = parseFloat(fk);
+                if (!isNaN(hz)) parts.get(p).get(t).add(hz);
+            }
+        }
+    }
+    
+    if (parts.size > 0) {
+        buildTabs(parts);
+        updateGallery();
+        updateTable();
+    }
+}
+
+function loadCloudSettings() {
+    const url = localStorage.getItem('cloudUrl');
+    const name = localStorage.getItem('tracerName');
+    const autoSave = localStorage.getItem('autoCloudSave') === 'true';
+    
+    if (url) document.getElementById('cloud-url').value = url;
+    if (name) document.getElementById('tracer-name').value = name;
+    
+    if (autoSave) {
+        autoCloudSave = true;
+        const btn = document.getElementById('auto-cloud-toggle');
+        btn.textContent = '⚡ Auto-Save: ON';
+        btn.className = 'px-4 py-2 rounded-xl font-bold text-sm bg-green-500 text-white shadow';
+    }
+}
+
+// ============================================
+// INIT
+// ============================================
+function init() {
+    canvas = document.getElementById('drawing-canvas');
+    ctx = canvas.getContext('2d');
+    canvas.width = canvas.height = CANVAS_SIZE;
+    
+    canvas.addEventListener('mousedown', startDraw);
+    canvas.addEventListener('mousemove', doDraw);
+    canvas.addEventListener('mouseup', endDraw);
+    canvas.addEventListener('mouseleave', endDraw);
+    canvas.addEventListener('touchstart', startDraw, { passive: false });
+    canvas.addEventListener('touchmove', doDraw, { passive: false });
+    canvas.addEventListener('touchend', endDraw);
+    
+    document.getElementById('color-red').onclick = () => { selColor = 'red'; document.getElementById('color-red').classList.add('selected'); document.getElementById('color-blue').classList.remove('selected'); };
+    document.getElementById('color-blue').onclick = () => { selColor = 'blue'; document.getElementById('color-blue').classList.add('selected'); document.getElementById('color-red').classList.remove('selected'); };
+    
+    document.getElementById('brush-slider').oninput = e => { brushSize = +e.target.value; document.getElementById('brush-val').textContent = brushSize; };
+    document.getElementById('resample-slider').oninput = e => { resampleRate = +e.target.value; document.getElementById('resample-val').textContent = resampleRate; };
+    document.getElementById('opacity-slider').oninput = e => { shapeOpacity = +e.target.value; document.getElementById('opacity-val').textContent = shapeOpacity + '%'; redraw(); updateGallery(); };
+    
+    document.getElementById('toggle-draw').onclick = () => { drawingOn = !drawingOn; const b = document.getElementById('toggle-draw'); b.textContent = drawingOn ? '✏️ Drawing: ON' : '✏️ Drawing: OFF'; b.className = b.className.replace(drawingOn ? 'bg-red' : 'bg-green', drawingOn ? 'bg-green' : 'bg-red'); canvas.style.cursor = drawingOn ? 'crosshair' : 'default'; };
+    document.getElementById('undo-btn').onclick = undo;
+    document.getElementById('redo-btn').onclick = redo;
+    document.getElementById('clear-btn').onclick = () => { if (confirm('Clear all?')) { const d = curData(); if (d) { undoStack.push({ key: dataKey(), data: JSON.parse(JSON.stringify(d)) }); d.red = []; d.blue = []; d.redAvg = null; d.blueAvg = null; } redraw(); updateTable(); updateGallery(); document.getElementById('undo-btn').disabled = false; } };
+    document.getElementById('grid-btn').onclick = () => { showGrid = !showGrid; redraw(); };
+    
+    document.getElementById('zip-upload').onchange = e => { if (e.target.files[0]) handleZip(e.target.files[0]); };
+    document.getElementById('single-upload').onchange = e => { if (e.target.files[0]) handleSingle(e.target.files[0]); };
+    document.getElementById('json-import').onchange = e => { if (e.target.files[0]) handleJson(e.target.files[0]); };
+    
+    document.getElementById('gen-avg').onclick = genAvgCur;
+    document.getElementById('bulk-avg').onclick = openModal;
+    document.getElementById('clear-avg').onclick = clearAvgCur;
+    
+    document.getElementById('close-modal').onclick = () => document.getElementById('modal').classList.remove('active');
+    document.getElementById('cancel-modal').onclick = () => document.getElementById('modal').classList.remove('active');
+    document.getElementById('do-bulk').onclick = doBulk;
+    document.getElementById('sel-all-p').onclick = () => document.querySelectorAll('#mod-p input').forEach(c => c.checked = true);
+    document.getElementById('sel-all-t').onclick = () => document.querySelectorAll('#mod-t input').forEach(c => c.checked = true);
+    document.getElementById('sel-all-f').onclick = () => document.querySelectorAll('#mod-f input').forEach(c => c.checked = true);
+    
+    document.getElementById('toggle-data').onclick = () => document.getElementById('data-box').classList.toggle('hidden');
+    
+    document.getElementById('exp-csv').onclick = expCSV;
+    document.getElementById('exp-json').onclick = expJSON;
+    document.getElementById('exp-sheets').onclick = expSheets;
+    document.getElementById('imp-sheets').onclick = impSheets;
+    document.getElementById('exp-drive').onclick = expDrive;
+    
+    const ss = localStorage.getItem('sheetsUrl'); if (ss) document.getElementById('sheets-url').value = ss;
+    const sd = localStorage.getItem('driveUrl'); if (sd) document.getElementById('drive-url').value = sd;
+    
+    // Cloud collaboration
+    document.getElementById('cloud-save').onclick = saveToCloud;
+    document.getElementById('cloud-load').onclick = () => loadFromCloud();
+    document.getElementById('cloud-list').onclick = listTracers;
+    document.getElementById('cloud-merge').onclick = mergeAllData;
+    document.getElementById('cloud-load-other').onclick = loadSelectedTracer;
+    document.getElementById('auto-cloud-toggle').onclick = toggleAutoCloudSave;
+    
+    // Load saved cloud settings
+    loadCloudSettings();
+    
+    drawGrid();
+}
+
+window.addEventListener('load', init);
+</script>
 </body>
 </html>
