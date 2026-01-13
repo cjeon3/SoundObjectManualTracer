@@ -2220,7 +2220,7 @@ async function saveToCloud() {
     }
 }
 
-async function loadFromCloud(tracerNameOverride = null, mergeMode = false) {
+async function loadFromCloud(tracerNameOverride = null, mergeMode = false, fromCoordinates = false) {
     const url = getCloudUrl();
     const tracerName = tracerNameOverride || getTracerName();
     
@@ -2237,7 +2237,9 @@ async function loadFromCloud(tracerNameOverride = null, mergeMode = false) {
         setCloudStatus('☁️ Loading from cloud...');
         status('Loading from cloud...');
         
-        const response = await fetch(`${url}?action=loadProgress&tracerName=${encodeURIComponent(tracerName)}`);
+        // Use loadAllFromCoordinates to get complete history, or loadProgress for latest only
+        const action = fromCoordinates ? 'loadAllFromCoordinates' : 'loadProgress';
+        const response = await fetch(`${url}?action=${action}&tracerName=${encodeURIComponent(tracerName)}`);
         const data = await response.json();
         
         if (data.error) {
@@ -2281,9 +2283,16 @@ async function loadFromCloud(tracerNameOverride = null, mergeMode = false) {
             // Rebuild tabs
             rebuildTabsFromData();
             
-            const savedTime = data.savedAt ? new Date(data.savedAt).toLocaleString() : 'unknown time';
             const action = mergeMode ? 'Added' : 'Loaded';
-            setCloudStatus(`✅ ${action} "${tracerName}" (saved ${savedTime})`);
+            const source = fromCoordinates ? ' (all history)' : '';
+            if (data.savedAt) {
+                const savedTime = new Date(data.savedAt).toLocaleString();
+                setCloudStatus(`✅ ${action} "${tracerName}"${source} (saved ${savedTime})`);
+            } else if (data.pointCount) {
+                setCloudStatus(`✅ ${action} "${tracerName}"${source}: ${data.pointCount} points`);
+            } else {
+                setCloudStatus(`✅ ${action} "${tracerName}"${source}`);
+            }
             status(mergeMode ? 'Data added from cloud' : 'Loaded from cloud');
         } else {
             setCloudStatus('⚠️ No data found for ' + tracerName);
@@ -2357,7 +2366,8 @@ function mergeDataInto(target, source) {
 }
 
 /**
- * Load all tracers' data at once (merged together)
+ * Load all tracers' data at once from CoordinateData sheet
+ * This loads ALL historical exports, not just the latest from each tracer
  */
 async function loadAllTracers() {
     const url = getCloudUrl();
@@ -2367,44 +2377,27 @@ async function loadAllTracers() {
     }
     
     try {
-        setCloudStatus('☁️ Fetching tracer list...');
+        setCloudStatus('☁️ Loading all coordinate data...');
+        status('Loading all data from CoordinateData...');
         
-        // First get the list of all tracers
-        const listResponse = await fetch(`${url}?action=listTracers`);
-        const listData = await listResponse.json();
+        const response = await fetch(`${url}?action=loadAllCoordinates`);
+        const data = await response.json();
         
-        if (!listData.tracers || listData.tracers.length === 0) {
-            setCloudStatus('⚠️ No tracers found');
+        if (data.error) {
+            setCloudStatus('❌ ' + data.error, true);
+            status('Load failed: ' + data.error);
             return;
         }
         
-        setCloudStatus(`☁️ Loading ${listData.tracers.length} tracers...`);
-        status(`Loading ${listData.tracers.length} tracers...`);
-        
-        // Clear current data and load each tracer
-        allData = {};
-        let loadedCount = 0;
-        
-        for (const tracer of listData.tracers) {
-            try {
-                const response = await fetch(`${url}?action=loadProgress&tracerName=${encodeURIComponent(tracer.name)}`);
-                const data = await response.json();
-                
-                if (data.allData) {
-                    mergeDataInto(allData, data.allData);
-                    loadedCount++;
-                    setCloudStatus(`☁️ Loaded ${loadedCount}/${listData.tracers.length}: ${tracer.name}`);
-                }
-            } catch (e) {
-                console.warn(`Failed to load tracer ${tracer.name}:`, e);
-            }
+        if (data.allData) {
+            allData = data.allData;
+            rebuildTabsFromData();
+            
+            setCloudStatus(`✅ Loaded ${data.pointCount} points from ${data.tracerCount} tracers`);
+            status(`Loaded all data: ${data.pointCount} points from ${data.tracerCount} tracers`);
+        } else {
+            setCloudStatus('⚠️ No coordinate data found');
         }
-        
-        // Rebuild tabs
-        rebuildTabsFromData();
-        
-        setCloudStatus(`✅ Loaded all ${loadedCount} tracers' data`);
-        status(`Loaded ${loadedCount} tracers`);
         
     } catch (e) {
         setCloudStatus('❌ Load all failed: ' + e.message, true);
@@ -2482,7 +2475,7 @@ function loadSelectedTracer() {
     const select = document.getElementById('tracer-select');
     const tracerName = select.value;
     if (tracerName) {
-        loadFromCloud(tracerName, false); // Load mode (replace)
+        loadFromCloud(tracerName, false, true); // Load mode (replace), from CoordinateData (all history)
     }
 }
 
@@ -2490,7 +2483,7 @@ function addSelectedTracer() {
     const select = document.getElementById('tracer-select');
     const tracerName = select.value;
     if (tracerName) {
-        loadFromCloud(tracerName, true); // Merge mode (add to existing)
+        loadFromCloud(tracerName, true, true); // Merge mode (add to existing), from CoordinateData (all history)
     }
 }
 
@@ -2603,7 +2596,7 @@ function init() {
     
     // Cloud collaboration
     document.getElementById('cloud-save').onclick = saveToCloud;
-    document.getElementById('cloud-load').onclick = () => loadFromCloud();
+    document.getElementById('cloud-load').onclick = () => loadFromCloud(null, false, true); // Load from CoordinateData
     document.getElementById('cloud-list').onclick = listTracers;
     document.getElementById('cloud-merge').onclick = mergeAllData;
     document.getElementById('cloud-load-all').onclick = loadAllTracers;
