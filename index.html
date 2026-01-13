@@ -38,6 +38,7 @@
         <header class="text-center mb-6">
             <h1 class="text-4xl font-extrabold text-blue-800 mb-2">Sound Object Contour Tracer</h1>
             <p class="text-xl font-semibold text-gray-600">UCI Hearing & Speech Lab</p>
+            <p class="text-sm text-gray-400 mt-1">v4.1 — Last updated: January 13, 2026</p>
         </header>
         
         <!-- Upload -->
@@ -126,28 +127,16 @@
         
         <!-- Generate Average Shapes Section - Below Controls, Above Export -->
         <div class="bg-gradient-to-r from-emerald-50 to-teal-50 p-6 rounded-xl shadow-lg mb-6 border-2 border-emerald-200">
-            <h2 class="font-bold text-emerald-800 mb-4">Generate Average Shapes</h2>
+            <h2 class="font-bold text-emerald-800 mb-4">Generate Composite Images</h2>
+            <p class="text-xs text-gray-500 mb-4">Generate average shapes across ALL participants for each frequency. Creates PNG images with transparent individual traces and solid average contours.</p>
             
-            <!-- Current Selection Average -->
-            <div class="mb-4 p-4 bg-white rounded-xl">
-                <h3 class="font-semibold text-gray-700 mb-3">Current Selection</h3>
-                <div class="grid grid-cols-3 gap-3">
-                    <button id="gen-avg" class="px-4 py-2 rounded-xl font-bold text-sm bg-emerald-500 text-white shadow">Generate Current</button>
-                    <button id="bulk-avg" class="px-4 py-2 rounded-xl font-bold text-sm bg-indigo-500 text-white shadow">Bulk Generate...</button>
-                    <button id="clear-avg" class="px-4 py-2 rounded-xl font-bold text-sm bg-orange-400 text-white shadow">Clear Average</button>
-                </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <button id="gen-freq-avg" class="px-4 py-2 rounded-xl font-bold text-sm bg-teal-600 text-white shadow">Generate Averages</button>
+                <button id="bulk-avg" class="px-4 py-2 rounded-xl font-bold text-sm bg-indigo-500 text-white shadow">Select Frequencies...</button>
+                <button id="export-freq-png" class="px-4 py-2 rounded-xl font-bold text-sm bg-cyan-600 text-white shadow">Export PNGs</button>
+                <button id="clear-avg" class="px-4 py-2 rounded-xl font-bold text-sm bg-orange-400 text-white shadow">Clear Averages</button>
             </div>
-            
-            <!-- Cross-Participant Frequency Averaging -->
-            <div class="p-4 bg-white rounded-xl">
-                <h3 class="font-semibold text-gray-700 mb-3">Cross-Participant Frequency Averages</h3>
-                <p class="text-xs text-gray-500 mb-3">Generate average shapes across ALL participants for each frequency. Creates PNG images with transparent individual traces and solid average contours.</p>
-                <div class="grid grid-cols-2 gap-3">
-                    <button id="gen-freq-avg" class="px-4 py-2 rounded-xl font-bold text-sm bg-teal-600 text-white shadow">Generate Frequency Averages</button>
-                    <button id="export-freq-png" class="px-4 py-2 rounded-xl font-bold text-sm bg-cyan-600 text-white shadow">Export as PNG Images</button>
-                </div>
-                <div id="freq-avg-status" class="text-xs text-gray-500 mt-3"></div>
-            </div>
+            <div id="freq-avg-status" class="text-xs text-gray-500"></div>
         </div>
         
         <!-- Data Table -->
@@ -215,24 +204,6 @@
             <p id="cloud-status" class="text-xs text-gray-500 mt-3"></p>
         </div>
         
-        <!-- Google -->
-        <div class="bg-emerald-50 p-6 rounded-xl shadow-lg mb-6 border-2 border-emerald-200">
-            <h3 class="font-bold text-emerald-800 mb-3">Google Sheets</h3>
-            <div class="flex gap-2 mb-2">
-                <input id="sheets-url" placeholder="Apps Script URL..." class="flex-1 px-3 py-2 border-2 border-emerald-300 rounded-xl text-sm">
-                <button id="exp-sheets" class="px-4 py-2 rounded-xl font-bold text-sm bg-emerald-500 text-white">Export</button>
-            </div>
-            <button id="imp-sheets" class="px-4 py-2 rounded-xl font-bold text-sm bg-cyan-500 text-white">Import</button>
-        </div>
-        
-        <div class="bg-blue-50 p-6 rounded-xl shadow-lg mb-6 border-2 border-blue-200">
-            <h3 class="font-bold text-blue-800 mb-3">Google Drive</h3>
-            <div class="flex gap-2">
-                <input id="drive-url" placeholder="Apps Script URL..." class="flex-1 px-3 py-2 border-2 border-blue-300 rounded-xl text-sm">
-                <button id="exp-drive" class="px-4 py-2 rounded-xl font-bold text-sm bg-blue-500 text-white">Export</button>
-            </div>
-        </div>
-        
         <!-- Gallery -->
         <div class="bg-white p-6 rounded-xl shadow-lg">
             <h3 class="font-bold text-gray-800 mb-4">Average Shapes Gallery</h3>
@@ -240,16 +211,52 @@
         </div>
     </div>
     
-    <!-- Modal -->
+    <!-- Frequency Selection Modal -->
     <div id="modal" class="modal">
-        <div class="modal-content">
-            <div class="flex justify-between mb-4"><h2 class="font-bold text-xl">Bulk Generate</h2><button id="close-modal" class="p-2 hover:bg-gray-100 rounded">✕</button></div>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                <div><h4 class="font-semibold mb-2">Participants <button id="sel-all-p" class="text-xs text-blue-600 ml-2">All</button></h4><div id="mod-p" class="checkbox-grid"></div></div>
-                <div><h4 class="font-semibold mb-2">Trials <button id="sel-all-t" class="text-xs text-blue-600 ml-2">All</button></h4><div id="mod-t" class="checkbox-grid"></div></div>
-                <div><h4 class="font-semibold mb-2">Frequencies <button id="sel-all-f" class="text-xs text-blue-600 ml-2">All</button></h4><div id="mod-f" class="checkbox-grid"></div></div>
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="flex justify-between mb-4">
+                <h2 class="font-bold text-xl">Select Frequencies for Composite</h2>
+                <button id="close-modal" class="p-2 hover:bg-gray-100 rounded">✕</button>
             </div>
-            <div class="flex justify-end gap-2"><button id="cancel-modal" class="px-4 py-2 rounded-xl bg-gray-200 font-bold">Cancel</button><button id="do-bulk" class="px-4 py-2 rounded-xl bg-emerald-500 text-white font-bold">Generate</button></div>
+            <p class="text-sm text-gray-600 mb-4">Choose which frequencies to include in the composite image generation.</p>
+            <div class="mb-4">
+                <div class="flex justify-between items-center mb-2">
+                    <h4 class="font-semibold">Frequencies</h4>
+                    <button id="sel-all-f" class="text-xs text-blue-600 hover:underline">Select All</button>
+                </div>
+                <div id="mod-f" class="checkbox-grid grid-cols-2"></div>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button id="cancel-modal" class="px-4 py-2 rounded-xl bg-gray-200 font-bold">Cancel</button>
+                <button id="do-bulk" class="px-4 py-2 rounded-xl bg-emerald-500 text-white font-bold">Generate Composites</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Cloud Save Progress Popup -->
+    <div id="cloud-progress-modal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="text-center">
+                <div id="cloud-progress-icon" class="text-5xl mb-4">☁️</div>
+                <h2 id="cloud-progress-title" class="font-bold text-xl mb-2">Saving to Cloud...</h2>
+                <p id="cloud-progress-message" class="text-gray-600 mb-4">Uploading your traced data</p>
+                
+                <!-- Progress bar -->
+                <div class="w-full bg-gray-200 rounded-full h-3 mb-4">
+                    <div id="cloud-progress-bar" class="bg-gradient-to-r from-blue-500 to-purple-500 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+                
+                <p id="cloud-progress-details" class="text-sm text-gray-500"></p>
+                
+                <!-- Success/Error details (hidden initially) -->
+                <div id="cloud-progress-result" class="hidden mt-4 p-4 rounded-xl">
+                    <p id="cloud-result-text" class="font-semibold"></p>
+                    <p id="cloud-result-details" class="text-sm mt-2"></p>
+                </div>
+                
+                <!-- Close button (hidden during progress) -->
+                <button id="cloud-progress-close" class="hidden mt-4 px-6 py-2 rounded-xl font-bold text-sm bg-gray-500 text-white shadow">Close</button>
+            </div>
         </div>
     </div>
 
@@ -1033,56 +1040,140 @@ function genAvgCur() {
 }
 
 function clearAvgCur() {
-    const d = curData();
-    if (d) { d.redAvg = null; d.blueAvg = null; redraw(); updateGallery(); status('Cleared'); }
+    // Clear all averages
+    for (const p of Object.keys(allData)) {
+        for (const t of Object.keys(allData[p])) {
+            for (const fk of Object.keys(allData[p][t])) {
+                const d = allData[p][t][fk];
+                d.redAvg = null;
+                d.blueAvg = null;
+            }
+        }
+    }
+    frequencyAverages = {};
+    redraw();
+    updateGallery();
+    document.getElementById('freq-avg-status').textContent = 'All averages cleared';
+    status('Cleared all averages');
 }
 
 function openModal() {
     document.getElementById('modal').classList.add('active');
-    const mp = document.getElementById('mod-p');
-    const mt = document.getElementById('mod-t');
     const mf = document.getElementById('mod-f');
-    mp.innerHTML = ''; mt.innerHTML = ''; mf.innerHTML = '';
+    mf.innerHTML = '';
     
-    const ps = new Set(), ts = new Set();
-    for (const p of Object.keys(allData)) {
-        ps.add(p);
-        for (const t of Object.keys(allData[p])) ts.add(t);
+    // Count shapes per frequency to show in the modal
+    const freqCounts = {};
+    for (const freq of FREQUENCIES) {
+        freqCounts[freq.hz] = { red: 0, blue: 0 };
     }
     
-    Array.from(ps).sort().forEach(p => {
-        mp.innerHTML += `<label class="checkbox-item"><input type="checkbox" value="${p}" checked><span>${p}</span></label>`;
-    });
-    Array.from(ts).sort((a, b) => (parseInt(a.replace(/\D/g, '')) || 0) - (parseInt(b.replace(/\D/g, '')) || 0)).forEach(t => {
-        mt.innerHTML += `<label class="checkbox-item"><input type="checkbox" value="${t}" checked><span>${t}</span></label>`;
-    });
+    for (const p of Object.keys(allData)) {
+        for (const t of Object.keys(allData[p])) {
+            for (const fk of Object.keys(allData[p][t])) {
+                const d = allData[p][t][fk];
+                const hz = parseFloat(fk);
+                if (freqCounts[hz]) {
+                    freqCounts[hz].red += d.red ? d.red.length : 0;
+                    freqCounts[hz].blue += d.blue ? d.blue.length : 0;
+                }
+            }
+        }
+    }
+    
     FREQUENCIES.forEach(f => {
-        mf.innerHTML += `<label class="checkbox-item"><input type="checkbox" value="${f.hz}" checked><span>${f.hz} Hz</span></label>`;
+        const counts = freqCounts[f.hz];
+        const hasData = counts.red > 0 || counts.blue > 0;
+        const countStr = hasData ? ` (R:${counts.red}, B:${counts.blue})` : ' (no data)';
+        mf.innerHTML += `<label class="checkbox-item ${!hasData ? 'opacity-50' : ''}">
+            <input type="checkbox" value="${f.hz}" ${hasData ? 'checked' : ''}>
+            <span>${f.hz} Hz${countStr}</span>
+        </label>`;
     });
 }
 
 function doBulk() {
-    const selP = [...document.querySelectorAll('#mod-p input:checked')].map(c => c.value);
-    const selT = [...document.querySelectorAll('#mod-t input:checked')].map(c => c.value);
     const selF = [...document.querySelectorAll('#mod-f input:checked')].map(c => parseFloat(c.value));
-    let cnt = 0;
-    for (const p of selP) {
-        if (!allData[p]) continue;
-        for (const t of selT) {
-            if (!allData[p][t]) continue;
-            for (const hz of selF) {
-                const f = FREQUENCIES.find(x => x.hz === hz);
-                if (!f) continue;
-                const d = allData[p][t][fKey(f)];
-                if (!d) continue;
-                if (d.red.length) { d.redAvg = calcAvg(d.red); cnt++; }
-                if (d.blue.length) { d.blueAvg = calcAvg(d.blue); cnt++; }
+    
+    if (selF.length === 0) {
+        alert('Please select at least one frequency');
+        return;
+    }
+    
+    document.getElementById('modal').classList.remove('active');
+    
+    // Generate frequency averages for selected frequencies only
+    const statusEl = document.getElementById('freq-avg-status');
+    statusEl.textContent = 'Generating composites for selected frequencies...';
+    
+    let totalRed = 0, totalBlue = 0;
+    
+    // Only process selected frequencies
+    for (const hz of selF) {
+        const freq = FREQUENCIES.find(f => f.hz === hz);
+        if (!freq) continue;
+        
+        frequencyAverages[hz] = {
+            redShapes: [],
+            blueShapes: [],
+            redAvg: null,
+            blueAvg: null,
+            redCentroid: null,
+            blueCentroid: null,
+            redArea: 0,
+            blueArea: 0
+        };
+        
+        // Collect shapes for this frequency from all participants/trials
+        for (const p of Object.keys(allData)) {
+            for (const t of Object.keys(allData[p])) {
+                for (const dataFk of Object.keys(allData[p][t])) {
+                    const dataHz = parseFloat(dataFk);
+                    if (Math.abs(dataHz - hz) < 0.1) {
+                        const d = allData[p][t][dataFk];
+                        if (d.red) {
+                            d.red.forEach(shape => {
+                                if (shape && shape.length > 2) {
+                                    frequencyAverages[hz].redShapes.push(shape);
+                                    totalRed++;
+                                }
+                            });
+                        }
+                        if (d.blue) {
+                            d.blue.forEach(shape => {
+                                if (shape && shape.length > 2) {
+                                    frequencyAverages[hz].blueShapes.push(shape);
+                                    totalBlue++;
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Calculate simple averages
+        if (frequencyAverages[hz].redShapes.length > 0) {
+            const avgShape = simpleAverageShapes(frequencyAverages[hz].redShapes, resampleRate);
+            if (avgShape) {
+                frequencyAverages[hz].redAvg = avgShape;
+                frequencyAverages[hz].redCentroid = calculateCentroid(avgShape);
+                frequencyAverages[hz].redArea = calculateArea(avgShape);
+            }
+        }
+        if (frequencyAverages[hz].blueShapes.length > 0) {
+            const avgShape = simpleAverageShapes(frequencyAverages[hz].blueShapes, resampleRate);
+            if (avgShape) {
+                frequencyAverages[hz].blueAvg = avgShape;
+                frequencyAverages[hz].blueCentroid = calculateCentroid(avgShape);
+                frequencyAverages[hz].blueArea = calculateArea(avgShape);
             }
         }
     }
-    document.getElementById('modal').classList.remove('active');
-    redraw();
-    updateGallery();
+    
+    statusEl.textContent = `Generated composites for ${selF.length} frequencies (${totalRed} red, ${totalBlue} blue shapes)`;
+    status(`Generated ${selF.length} frequency composites`);
+}
     status(`Generated ${cnt} averages`);
 }
 
@@ -1094,9 +1185,87 @@ function doBulk() {
 let frequencyAverages = {};
 
 /**
+ * Calculate centroid of a shape (for display purposes)
+ */
+function calculateCentroid(shape) {
+    if (!shape || shape.length === 0) return { x: 0, y: 0 };
+    let sumX = 0, sumY = 0;
+    for (const pt of shape) {
+        sumX += pt.x;
+        sumY += pt.y;
+    }
+    return { x: sumX / shape.length, y: sumY / shape.length };
+}
+
+/**
+ * Calculate area of a shape using shoelace formula
+ */
+function calculateArea(shape) {
+    if (!shape || shape.length < 3) return 0;
+    let area = 0;
+    for (let i = 0; i < shape.length; i++) {
+        const j = (i + 1) % shape.length;
+        area += shape[i].x * shape[j].y;
+        area -= shape[j].x * shape[i].y;
+    }
+    return Math.abs(area) / 2;
+}
+
+/**
+ * Simple average of shapes - directly averages corresponding points
+ * This preserves actual spatial positions better for geometric shapes
+ */
+function simpleAverageShapes(shapes, targetLength = 1000) {
+    if (!shapes || shapes.length === 0) return null;
+    
+    // Filter out invalid shapes
+    const validShapes = shapes.filter(s => s && s.length >= 3);
+    if (validShapes.length === 0) return null;
+    
+    if (validShapes.length === 1) {
+        return validShapes[0];
+    }
+    
+    // Resample all shapes to the same length
+    const resampledShapes = validShapes.map(shape => {
+        if (shape.length === targetLength) return shape;
+        
+        const resampled = [];
+        for (let i = 0; i < targetLength; i++) {
+            const t = i / targetLength * shape.length;
+            const idx = Math.floor(t);
+            const frac = t - idx;
+            const p1 = shape[idx % shape.length];
+            const p2 = shape[(idx + 1) % shape.length];
+            resampled.push({
+                x: p1.x + frac * (p2.x - p1.x),
+                y: p1.y + frac * (p2.y - p1.y)
+            });
+        }
+        return resampled;
+    });
+    
+    // Simple average: average corresponding points directly
+    const avgShape = [];
+    for (let i = 0; i < targetLength; i++) {
+        let sumX = 0, sumY = 0;
+        for (const shape of resampledShapes) {
+            sumX += shape[i].x;
+            sumY += shape[i].y;
+        }
+        avgShape.push({
+            x: sumX / resampledShapes.length,
+            y: sumY / resampledShapes.length
+        });
+    }
+    
+    console.log(`[Simple Average] ${validShapes.length} shapes averaged`);
+    return avgShape;
+}
+
+/**
  * Generate average shapes across ALL participants for each frequency
- * Collects all red shapes and all blue shapes for each frequency,
- * then computes a single average for each color per frequency
+ * Uses simple direct averaging of corresponding points
  */
 function generateFrequencyAverages() {
     const statusEl = document.getElementById('freq-avg-status');
@@ -1114,7 +1283,11 @@ function generateFrequencyAverages() {
             redShapes: [],
             blueShapes: [],
             redAvg: null,
-            blueAvg: null
+            blueAvg: null,
+            redCentroid: null,
+            blueCentroid: null,
+            redArea: 0,
+            blueArea: 0
         };
         
         // Iterate through all participants and trials
@@ -1147,12 +1320,22 @@ function generateFrequencyAverages() {
             }
         }
         
-        // Calculate averages for this frequency
+        // Calculate simple averages
         if (frequencyAverages[hzKey].redShapes.length > 0) {
-            frequencyAverages[hzKey].redAvg = calcAvg(frequencyAverages[hzKey].redShapes);
+            const avgShape = simpleAverageShapes(frequencyAverages[hzKey].redShapes, resampleRate);
+            if (avgShape) {
+                frequencyAverages[hzKey].redAvg = avgShape;
+                frequencyAverages[hzKey].redCentroid = calculateCentroid(avgShape);
+                frequencyAverages[hzKey].redArea = calculateArea(avgShape);
+            }
         }
         if (frequencyAverages[hzKey].blueShapes.length > 0) {
-            frequencyAverages[hzKey].blueAvg = calcAvg(frequencyAverages[hzKey].blueShapes);
+            const avgShape = simpleAverageShapes(frequencyAverages[hzKey].blueShapes, resampleRate);
+            if (avgShape) {
+                frequencyAverages[hzKey].blueAvg = avgShape;
+                frequencyAverages[hzKey].blueCentroid = calculateCentroid(avgShape);
+                frequencyAverages[hzKey].blueArea = calculateArea(avgShape);
+            }
         }
     }
     
@@ -1261,8 +1444,9 @@ function exportFrequencyPNGs() {
             });
         }
         
-        // Layer 3: Average shapes at full opacity
+        // Layer 3: Average shapes at full opacity with centroid markers
         if (data.redAvg && data.redAvg.length >= 2) {
+            // Draw average contour
             cx.strokeStyle = '#991b1b'; // Dark red
             cx.lineWidth = 4;
             cx.lineCap = 'round';
@@ -1274,10 +1458,24 @@ function exportFrequencyPNGs() {
                 const pt = unitToCanvas(data.redAvg[i].x, data.redAvg[i].y);
                 cx.lineTo(pt.x, pt.y);
             }
+            cx.closePath();
             cx.stroke();
+            
+            // Draw centroid marker
+            if (data.redCentroid) {
+                const cp = unitToCanvas(data.redCentroid.x, data.redCentroid.y);
+                cx.fillStyle = '#991b1b';
+                cx.beginPath();
+                cx.arc(cp.x, cp.y, 6, 0, Math.PI * 2);
+                cx.fill();
+                cx.strokeStyle = 'white';
+                cx.lineWidth = 2;
+                cx.stroke();
+            }
         }
         
         if (data.blueAvg && data.blueAvg.length >= 2) {
+            // Draw average contour
             cx.strokeStyle = '#1e3a8a'; // Dark blue
             cx.lineWidth = 4;
             cx.lineCap = 'round';
@@ -1289,7 +1487,20 @@ function exportFrequencyPNGs() {
                 const pt = unitToCanvas(data.blueAvg[i].x, data.blueAvg[i].y);
                 cx.lineTo(pt.x, pt.y);
             }
+            cx.closePath();
             cx.stroke();
+            
+            // Draw centroid marker
+            if (data.blueCentroid) {
+                const cp = unitToCanvas(data.blueCentroid.x, data.blueCentroid.y);
+                cx.fillStyle = '#1e3a8a';
+                cx.beginPath();
+                cx.arc(cp.x, cp.y, 6, 0, Math.PI * 2);
+                cx.fill();
+                cx.strokeStyle = 'white';
+                cx.lineWidth = 2;
+                cx.stroke();
+            }
         }
         
         // Layer 4: Grid on top
@@ -1308,16 +1519,37 @@ function exportFrequencyPNGs() {
         
         // Title
         cx.fillStyle = '#1f2937';
-        cx.font = 'bold 24px sans-serif';
+        cx.font = 'bold 28px sans-serif';
         cx.textAlign = 'center';
-        cx.fillText(`${hzKey} Hz - All Participants Average`, CENTER, 40);
+        cx.fillText(`${hzKey} Hz`, CENTER, 30);
         
-        // Stats
+        // Detailed stats
         cx.font = '14px sans-serif';
-        cx.fillStyle = '#6b7280';
+        cx.textAlign = 'left';
         const redCount = data.redShapes ? data.redShapes.length : 0;
         const blueCount = data.blueShapes ? data.blueShapes.length : 0;
-        cx.fillText(`Red: ${redCount} shapes | Blue: ${blueCount} shapes`, CENTER, CANVAS_SIZE - 20);
+        
+        // Red stats
+        cx.fillStyle = '#991b1b';
+        const redCentroidStr = data.redCentroid ? `(${data.redCentroid.x.toFixed(2)}, ${data.redCentroid.y.toFixed(2)})` : '-';
+        const redAreaStr = data.redArea ? data.redArea.toFixed(2) : '-';
+        cx.fillText(`Red: N=${redCount}, Centroid=${redCentroidStr}, Area=${redAreaStr}`, 20, 55);
+        
+        // Blue stats
+        cx.fillStyle = '#1e3a8a';
+        const blueCentroidStr = data.blueCentroid ? `(${data.blueCentroid.x.toFixed(2)}, ${data.blueCentroid.y.toFixed(2)})` : '-';
+        const blueAreaStr = data.blueArea ? data.blueArea.toFixed(2) : '-';
+        cx.fillText(`Blue: N=${blueCount}, Centroid=${blueCentroidStr}, Area=${blueAreaStr}`, 20, 75);
+        
+        // Shift calculation (if both exist)
+        if (data.redCentroid && data.blueCentroid) {
+            const shift = Math.sqrt(
+                Math.pow(data.blueCentroid.x - data.redCentroid.x, 2) + 
+                Math.pow(data.blueCentroid.y - data.redCentroid.y, 2)
+            );
+            cx.fillStyle = '#6b7280';
+            cx.fillText(`Centroid Shift: ${shift.toFixed(3)} units`, 20, 95);
+        }
         
         // Save as PNG
         tc.toBlob(blob => {
@@ -1592,6 +1824,101 @@ function setCloudStatus(msg, isError = false) {
     el.className = isError ? 'text-xs text-red-600 mt-3' : 'text-xs text-green-600 mt-3';
 }
 
+// Cloud progress popup functions
+let cloudProgressStartTime = null;
+
+function showCloudProgress(title, message) {
+    const modal = document.getElementById('cloud-progress-modal');
+    document.getElementById('cloud-progress-icon').textContent = '☁️';
+    document.getElementById('cloud-progress-title').textContent = title;
+    document.getElementById('cloud-progress-message').textContent = message;
+    document.getElementById('cloud-progress-bar').style.width = '0%';
+    document.getElementById('cloud-progress-details').textContent = '';
+    document.getElementById('cloud-progress-result').classList.add('hidden');
+    document.getElementById('cloud-progress-close').classList.add('hidden');
+    modal.classList.add('active');
+    cloudProgressStartTime = Date.now();
+}
+
+function updateCloudProgress(percent, details = '') {
+    document.getElementById('cloud-progress-bar').style.width = percent + '%';
+    
+    let timeInfo = '';
+    if (cloudProgressStartTime && percent > 0 && percent < 100) {
+        const elapsed = (Date.now() - cloudProgressStartTime) / 1000; // seconds
+        const estimatedTotal = elapsed / (percent / 100);
+        const remaining = estimatedTotal - elapsed;
+        
+        if (remaining > 0) {
+            if (remaining < 60) {
+                timeInfo = ` (~${Math.ceil(remaining)}s remaining)`;
+            } else {
+                const mins = Math.floor(remaining / 60);
+                const secs = Math.ceil(remaining % 60);
+                timeInfo = ` (~${mins}m ${secs}s remaining)`;
+            }
+        }
+    }
+    
+    if (details) {
+        document.getElementById('cloud-progress-details').textContent = details + timeInfo;
+    } else if (timeInfo) {
+        document.getElementById('cloud-progress-details').textContent = `${percent}% complete${timeInfo}`;
+    }
+}
+
+function showCloudSuccess(title, message, details = '') {
+    document.getElementById('cloud-progress-icon').textContent = '✅';
+    document.getElementById('cloud-progress-title').textContent = title;
+    document.getElementById('cloud-progress-message').textContent = message;
+    document.getElementById('cloud-progress-bar').style.width = '100%';
+    
+    // Show total time taken
+    let totalTime = '';
+    if (cloudProgressStartTime) {
+        const elapsed = (Date.now() - cloudProgressStartTime) / 1000;
+        if (elapsed < 60) {
+            totalTime = `\nCompleted in ${elapsed.toFixed(1)} seconds`;
+        } else {
+            const mins = Math.floor(elapsed / 60);
+            const secs = (elapsed % 60).toFixed(1);
+            totalTime = `\nCompleted in ${mins}m ${secs}s`;
+        }
+    }
+    
+    const resultDiv = document.getElementById('cloud-progress-result');
+    resultDiv.classList.remove('hidden', 'bg-red-100');
+    resultDiv.classList.add('bg-green-100');
+    document.getElementById('cloud-result-text').textContent = '✓ Success';
+    document.getElementById('cloud-result-text').className = 'font-semibold text-green-700';
+    document.getElementById('cloud-result-details').textContent = details + totalTime;
+    document.getElementById('cloud-result-details').className = 'text-sm mt-2 text-green-600 whitespace-pre-line';
+    document.getElementById('cloud-progress-details').textContent = '100% complete';
+    
+    document.getElementById('cloud-progress-close').classList.remove('hidden');
+}
+
+function showCloudError(title, message, details = '') {
+    document.getElementById('cloud-progress-icon').textContent = '❌';
+    document.getElementById('cloud-progress-title').textContent = title;
+    document.getElementById('cloud-progress-message').textContent = message;
+    
+    const resultDiv = document.getElementById('cloud-progress-result');
+    resultDiv.classList.remove('hidden', 'bg-green-100');
+    resultDiv.classList.add('bg-red-100');
+    document.getElementById('cloud-result-text').textContent = '✗ Error';
+    document.getElementById('cloud-result-text').className = 'font-semibold text-red-700';
+    document.getElementById('cloud-result-details').textContent = details;
+    document.getElementById('cloud-result-details').className = 'text-sm mt-2 text-red-600';
+    
+    document.getElementById('cloud-progress-close').classList.remove('hidden');
+}
+
+function hideCloudProgress() {
+    document.getElementById('cloud-progress-modal').classList.remove('active');
+    cloudProgressStartTime = null;
+}
+
 async function saveToCloud() {
     const url = getCloudUrl();
     const tracerName = getTracerName();
@@ -1605,9 +1932,35 @@ async function saveToCloud() {
         return;
     }
     
+    // Show progress popup
+    showCloudProgress('Saving to Cloud...', 'Preparing your traced data');
+    
     // Save settings locally
     localStorage.setItem('cloudUrl', url);
     localStorage.setItem('tracerName', tracerName);
+    
+    // Count data for display
+    const participants = Object.keys(allData);
+    let totalShapes = 0;
+    let dataDebug = [];
+    for (const p of participants) {
+        for (const t of Object.keys(allData[p])) {
+            for (const f of Object.keys(allData[p][t])) {
+                const d = allData[p][t][f];
+                const redCount = d.red ? d.red.length : 0;
+                const blueCount = d.blue ? d.blue.length : 0;
+                totalShapes += redCount + blueCount;
+                dataDebug.push(`${p}/${t}/${f}: R=${redCount}, B=${blueCount}`);
+            }
+        }
+    }
+    
+    updateCloudProgress(10, `${participants.length} participants, ${totalShapes} shapes`);
+    
+    console.log('=== SAVE TO CLOUD DEBUG ===');
+    console.log('Participants:', participants);
+    console.log('Total shapes:', totalShapes);
+    console.log('Data breakdown:', dataDebug);
     
     const saveData = {
         action: 'saveProgress',
@@ -1617,12 +1970,17 @@ async function saveToCloud() {
         settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize }
     };
     
+    // Log the size of the payload
+    const payloadSize = JSON.stringify(saveData).length;
+    const payloadKB = (payloadSize / 1024).toFixed(1);
+    console.log('Payload size:', payloadSize, 'bytes');
+    
+    updateCloudProgress(20, `Uploading ${payloadKB} KB...`);
+    
     try {
-        setCloudStatus('Saving to cloud...');
-        status('Saving to cloud...');
+        updateCloudProgress(30, 'Connecting to Google Sheets...');
         
         // Use no-cors mode since Google Apps Script redirects
-        // The actual save happens on the server side
         await fetch(url, {
             method: 'POST',
             mode: 'no-cors',
@@ -1630,30 +1988,63 @@ async function saveToCloud() {
             body: JSON.stringify(saveData)
         });
         
-        // Since no-cors doesn't return response, we assume success if no error thrown
-        // Verify by doing a quick load check
-        setTimeout(async () => {
-            try {
-                const checkUrl = `${url}?action=listTracers`;
-                const checkResp = await fetch(checkUrl);
-                if (checkResp.ok) {
-                    const data = await checkResp.json();
-                    const found = data.tracers?.find(t => t.name === tracerName);
-                    if (found) {
-                        setCloudStatus(`Saved as "${tracerName}" at ${new Date().toLocaleTimeString()} (${found.totalShapes} shapes)`);
-                    } else {
-                        setCloudStatus(`Saved as "${tracerName}" at ${new Date().toLocaleTimeString()}`);
-                    }
+        updateCloudProgress(60, 'Data sent, verifying...');
+        
+        // Verify by checking if save worked
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        updateCloudProgress(80, 'Checking save status...');
+        
+        try {
+            const checkUrl = `${url}?action=listTracers`;
+            const checkResp = await fetch(checkUrl);
+            if (checkResp.ok) {
+                const data = await checkResp.json();
+                const found = data.tracers?.find(t => t.name === tracerName);
+                
+                updateCloudProgress(100);
+                
+                if (found) {
+                    console.log('Verification - found tracer:', found);
+                    const savedTime = new Date().toLocaleTimeString();
+                    showCloudSuccess(
+                        'Saved Successfully!', 
+                        `Your data has been saved to the cloud.`,
+                        `Tracer: ${tracerName}\nParticipants: ${found.participantCount}\nTrials: ${found.trialCount}\nShapes: ${found.totalShapes}\nTime: ${savedTime}`
+                    );
+                    setCloudStatus(`✅ Saved as "${tracerName}" (${found.totalShapes} shapes)`);
+                } else {
+                    console.log('Verification - tracer not found in list');
+                    showCloudSuccess(
+                        'Save Complete', 
+                        'Data was sent to Google Sheets.',
+                        `Tracer: ${tracerName}\nNote: Verification pending. Check your Google Sheet.`
+                    );
+                    setCloudStatus(`✅ Saved as "${tracerName}"`);
                 }
-            } catch (e) {
-                // Verification failed but save may have worked
-                setCloudStatus(`Saved as "${tracerName}" at ${new Date().toLocaleTimeString()}`);
+            } else {
+                throw new Error('Verification request failed');
             }
-        }, 1500);
+        } catch (verifyError) {
+            console.log('Verification error:', verifyError);
+            // Save may have worked, just verification failed
+            showCloudSuccess(
+                'Save Sent', 
+                'Data was sent to Google Sheets.',
+                `Tracer: ${tracerName}\nNote: Could not verify. Check your Google Sheet directly.`
+            );
+            setCloudStatus(`✅ Saved as "${tracerName}" (unverified)`);
+        }
         
         status('Saved to cloud');
     } catch (e) {
-        setCloudStatus('Save failed: ' + e.message, true);
+        console.error('Save error:', e);
+        showCloudError(
+            'Save Failed',
+            'Could not save to Google Sheets.',
+            e.message || 'Check your internet connection and Apps Script URL.'
+        );
+        setCloudStatus('❌ Save failed: ' + e.message, true);
         status('Cloud save failed');
     }
 }
@@ -1891,7 +2282,6 @@ function init() {
     document.getElementById('single-upload').onchange = e => { if (e.target.files[0]) handleSingle(e.target.files[0]); };
     document.getElementById('json-import').onchange = e => { if (e.target.files[0]) handleJson(e.target.files[0]); };
     
-    document.getElementById('gen-avg').onclick = genAvgCur;
     document.getElementById('bulk-avg').onclick = openModal;
     document.getElementById('clear-avg').onclick = clearAvgCur;
     document.getElementById('gen-freq-avg').onclick = generateFrequencyAverages;
@@ -1900,20 +2290,12 @@ function init() {
     document.getElementById('close-modal').onclick = () => document.getElementById('modal').classList.remove('active');
     document.getElementById('cancel-modal').onclick = () => document.getElementById('modal').classList.remove('active');
     document.getElementById('do-bulk').onclick = doBulk;
-    document.getElementById('sel-all-p').onclick = () => document.querySelectorAll('#mod-p input').forEach(c => c.checked = true);
-    document.getElementById('sel-all-t').onclick = () => document.querySelectorAll('#mod-t input').forEach(c => c.checked = true);
     document.getElementById('sel-all-f').onclick = () => document.querySelectorAll('#mod-f input').forEach(c => c.checked = true);
     
     document.getElementById('toggle-data').onclick = () => document.getElementById('data-box').classList.toggle('hidden');
     
     document.getElementById('exp-csv').onclick = expCSV;
     document.getElementById('exp-json').onclick = expJSON;
-    document.getElementById('exp-sheets').onclick = expSheets;
-    document.getElementById('imp-sheets').onclick = impSheets;
-    document.getElementById('exp-drive').onclick = expDrive;
-    
-    const ss = localStorage.getItem('sheetsUrl'); if (ss) document.getElementById('sheets-url').value = ss;
-    const sd = localStorage.getItem('driveUrl'); if (sd) document.getElementById('drive-url').value = sd;
     
     // Cloud collaboration
     document.getElementById('cloud-save').onclick = saveToCloud;
@@ -1922,6 +2304,7 @@ function init() {
     document.getElementById('cloud-merge').onclick = mergeAllData;
     document.getElementById('cloud-load-other').onclick = loadSelectedTracer;
     document.getElementById('auto-cloud-toggle').onclick = toggleAutoCloudSave;
+    document.getElementById('cloud-progress-close').onclick = hideCloudProgress;
     
     // Load saved cloud settings
     loadCloudSettings();
