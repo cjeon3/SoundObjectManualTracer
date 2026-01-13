@@ -72,7 +72,37 @@
         </div>
         
         <!-- Canvas -->
-        <div id="canvas-container" class="bg-white rounded-xl shadow-2xl mb-6"><canvas id="drawing-canvas"></canvas></div>
+        <div id="canvas-container" class="bg-white rounded-xl shadow-2xl mb-4"><canvas id="drawing-canvas"></canvas></div>
+        
+        <!-- Tracing Statistics Section -->
+        <div id="stats-section" class="bg-gradient-to-r from-gray-50 to-slate-50 p-4 rounded-xl shadow-lg mb-6 border border-gray-200 hidden">
+            <h3 class="font-bold text-gray-700 mb-3">📊 Tracing Statistics</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-white p-3 rounded-lg border border-red-200">
+                    <h4 class="font-semibold text-red-600 mb-2">Red (0° IPD)</h4>
+                    <div class="text-sm space-y-1">
+                        <div>Shapes traced: <span id="stats-red-shapes" class="font-mono font-bold">0</span></div>
+                        <div>Total points: <span id="stats-red-points" class="font-mono font-bold">0</span></div>
+                        <div>Image overlap: <span id="stats-red-overlap" class="font-mono font-bold">-</span></div>
+                        <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
+                            <div id="stats-red-bar" class="bg-red-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white p-3 rounded-lg border border-blue-200">
+                    <h4 class="font-semibold text-blue-600 mb-2">Blue (90° right-leading IPD)</h4>
+                    <div class="text-sm space-y-1">
+                        <div>Shapes traced: <span id="stats-blue-shapes" class="font-mono font-bold">0</span></div>
+                        <div>Total points: <span id="stats-blue-points" class="font-mono font-bold">0</span></div>
+                        <div>Image overlap: <span id="stats-blue-overlap" class="font-mono font-bold">-</span></div>
+                        <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
+                            <div id="stats-blue-bar" class="bg-blue-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <p class="text-xs text-gray-500 mt-3">Overlap measures how well traced contours match the original drawing pixels (higher = better match).</p>
+        </div>
         
         <!-- Controls -->
         <div class="bg-white p-4 rounded-xl shadow-lg mb-6 space-y-4">
@@ -533,6 +563,7 @@ function redraw() {
     // Layer 5: Grid on top of everything
     drawGrid();
     updateInfo();
+    updateStatistics();
 }
 
 function updateInfo() {
@@ -542,6 +573,241 @@ function updateInfo() {
     const d = curData();
     document.getElementById('info-r').textContent = d ? d.red.length : 0;
     document.getElementById('info-b').textContent = d ? d.blue.length : 0;
+}
+
+// ============================================
+// TRACING STATISTICS
+// ============================================
+function updateStatistics() {
+    const statsSection = document.getElementById('stats-section');
+    const d = curData();
+    const ik = curParticipant && curTrial && curFreq ? `${curParticipant}|${curTrial}|${fKey(curFreq)}` : null;
+    const img = ik ? images[ik] : null;
+    
+    // Show/hide stats section based on whether we have data
+    if (!d || (!d.red.length && !d.blue.length)) {
+        statsSection.classList.add('hidden');
+        return;
+    }
+    
+    statsSection.classList.remove('hidden');
+    
+    // Count shapes and points
+    const redShapes = d.red.length;
+    const blueShapes = d.blue.length;
+    const redPoints = d.red.reduce((sum, s) => sum + (s ? s.length : 0), 0);
+    const bluePoints = d.blue.reduce((sum, s) => sum + (s ? s.length : 0), 0);
+    
+    document.getElementById('stats-red-shapes').textContent = redShapes;
+    document.getElementById('stats-blue-shapes').textContent = blueShapes;
+    document.getElementById('stats-red-points').textContent = redPoints;
+    document.getElementById('stats-blue-points').textContent = bluePoints;
+    
+    // Calculate overlap with original image if available
+    if (img) {
+        const overlap = calculateImageOverlap(img, d);
+        
+        document.getElementById('stats-red-overlap').textContent = overlap.red !== null ? `${overlap.red.toFixed(1)}%` : 'N/A';
+        document.getElementById('stats-blue-overlap').textContent = overlap.blue !== null ? `${overlap.blue.toFixed(1)}%` : 'N/A';
+        document.getElementById('stats-red-bar').style.width = overlap.red !== null ? `${overlap.red}%` : '0%';
+        document.getElementById('stats-blue-bar').style.width = overlap.blue !== null ? `${overlap.blue}%` : '0%';
+    } else {
+        document.getElementById('stats-red-overlap').textContent = 'No image';
+        document.getElementById('stats-blue-overlap').textContent = 'No image';
+        document.getElementById('stats-red-bar').style.width = '0%';
+        document.getElementById('stats-blue-bar').style.width = '0%';
+    }
+}
+
+/**
+ * Calculate how well traced contours overlap with original image pixels
+ * Returns percentage of traced pixels that overlap with non-white pixels in the original
+ */
+function calculateImageOverlap(img, data) {
+    // Create temporary canvas to analyze the image
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = CANVAS_SIZE;
+    tempCanvas.height = CANVAS_SIZE;
+    const tempCtx = tempCanvas.getContext('2d');
+    
+    // Draw the original image
+    tempCtx.fillStyle = '#fff';
+    tempCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    
+    if (img.naturalWidth === CANVAS_SIZE && img.naturalHeight === CANVAS_SIZE) {
+        tempCtx.drawImage(img, 0, 0);
+    } else {
+        const scale = Math.min(CANVAS_SIZE / img.naturalWidth, CANVAS_SIZE / img.naturalHeight);
+        const scaledW = img.naturalWidth * scale;
+        const scaledH = img.naturalHeight * scale;
+        const offsetX = (CANVAS_SIZE - scaledW) / 2;
+        const offsetY = (CANVAS_SIZE - scaledH) / 2;
+        tempCtx.drawImage(img, offsetX, offsetY, scaledW, scaledH);
+    }
+    
+    // Get image data
+    const imageData = tempCtx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    const pixels = imageData.data;
+    
+    // Helper to get RGB values at a pixel
+    function getRGB(x, y) {
+        if (x < 0 || x >= CANVAS_SIZE || y < 0 || y >= CANVAS_SIZE) return null;
+        const idx = (Math.floor(y) * CANVAS_SIZE + Math.floor(x)) * 4;
+        return { r: pixels[idx], g: pixels[idx + 1], b: pixels[idx + 2] };
+    }
+    
+    // Check if pixel is canvas/grid (black, gray, or white) - should be ignored
+    function isCanvasOrGrid(r, g, b) {
+        // Check for grayscale (r ≈ g ≈ b)
+        const maxDiff = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(r - b));
+        return maxDiff < 30; // If all channels are within 30 of each other, it's grayscale
+    }
+    
+    // Check if pixel contains red/pink color
+    // Includes: red, pink, magenta, red over gray/black
+    function hasRedComponent(r, g, b) {
+        if (isCanvasOrGrid(r, g, b)) return false;
+        
+        // Pure red or red-dominant
+        if (r > 150 && r > g * 1.2 && r > b * 1.2) return true;
+        
+        // Pink (red + white blend): high red, moderate-high green and blue but red still highest
+        if (r > 180 && g > 100 && b > 100 && r > g && r > b) return true;
+        
+        // Magenta/pink: high red and blue, lower green
+        if (r > 150 && b > 100 && r > g * 1.3 && g < 150) return true;
+        
+        // Red over gray: red channel elevated compared to a gray baseline
+        // If it would be gray but red is boosted
+        const avgGB = (g + b) / 2;
+        if (r > avgGB + 40 && r > 100) return true;
+        
+        // Red over black: low overall but red is dominant
+        if (r > 50 && r > g * 1.5 && r > b * 1.5 && g < 100 && b < 100) return true;
+        
+        // Light red/salmon
+        if (r > 200 && g > 120 && g < 180 && b > 100 && b < 160 && r > g && r > b) return true;
+        
+        return false;
+    }
+    
+    // Check if pixel contains blue color
+    // Includes: blue, cyan-ish blue, blue over gray/black
+    function hasBlueComponent(r, g, b) {
+        if (isCanvasOrGrid(r, g, b)) return false;
+        
+        // Pure blue or blue-dominant
+        if (b > 150 && b > r * 1.2 && b > g * 1.1) return true;
+        
+        // Cyan-blue: high blue and green, lower red
+        if (b > 150 && g > 100 && b >= g && r < g) return true;
+        
+        // Light blue: high blue with moderate other channels but blue still highest
+        if (b > 180 && g > 100 && r > 80 && b > r && b > g) return true;
+        
+        // Blue over gray: blue channel elevated compared to a gray baseline
+        const avgRG = (r + g) / 2;
+        if (b > avgRG + 40 && b > 100) return true;
+        
+        // Blue over black: low overall but blue is dominant
+        if (b > 50 && b > r * 1.5 && b > g * 1.3 && r < 100) return true;
+        
+        // Steel blue / muted blue
+        if (b > 120 && b > r && b > g * 0.9 && r < 150) return true;
+        
+        return false;
+    }
+    
+    // Check if pixel is purple (counts as both red AND blue)
+    function isPurple(r, g, b) {
+        if (isCanvasOrGrid(r, g, b)) return false;
+        
+        // Purple: significant red and blue, less green
+        if (r > 100 && b > 100 && r > g * 1.2 && b > g * 1.2) return true;
+        
+        // Magenta: high red and blue, low green
+        if (r > 150 && b > 150 && g < 120) return true;
+        
+        // Violet: blue-dominant purple
+        if (b > 120 && r > 80 && b > g && r > g && g < 150) return true;
+        
+        // Light purple/lavender
+        if (r > 150 && b > 150 && g > 100 && g < r && g < b) return true;
+        
+        return false;
+    }
+    
+    // Check if a pixel matches red criteria (including purple)
+    function isRedPixel(x, y) {
+        const rgb = getRGB(x, y);
+        if (!rgb) return false;
+        return hasRedComponent(rgb.r, rgb.g, rgb.b) || isPurple(rgb.r, rgb.g, rgb.b);
+    }
+    
+    // Check if a pixel matches blue criteria (including purple)
+    function isBluePixel(x, y) {
+        const rgb = getRGB(x, y);
+        if (!rgb) return false;
+        return hasBlueComponent(rgb.r, rgb.g, rgb.b) || isPurple(rgb.r, rgb.g, rgb.b);
+    }
+    
+    // Calculate overlap for red traces
+    let redOverlap = null;
+    if (data.red && data.red.length > 0) {
+        let totalRedPoints = 0;
+        let matchingRedPoints = 0;
+        
+        data.red.forEach(shape => {
+            if (!shape) return;
+            shape.forEach(pt => {
+                const canvasPt = unitToCanvas(pt.x, pt.y);
+                totalRedPoints++;
+                
+                // Check a small area around the point (brush radius)
+                let found = false;
+                for (let dx = -brushSize; dx <= brushSize && !found; dx++) {
+                    for (let dy = -brushSize; dy <= brushSize && !found; dy++) {
+                        if (isRedPixel(canvasPt.x + dx, canvasPt.y + dy)) {
+                            found = true;
+                        }
+                    }
+                }
+                if (found) matchingRedPoints++;
+            });
+        });
+        
+        redOverlap = totalRedPoints > 0 ? (matchingRedPoints / totalRedPoints) * 100 : 0;
+    }
+    
+    // Calculate overlap for blue traces
+    let blueOverlap = null;
+    if (data.blue && data.blue.length > 0) {
+        let totalBluePoints = 0;
+        let matchingBluePoints = 0;
+        
+        data.blue.forEach(shape => {
+            if (!shape) return;
+            shape.forEach(pt => {
+                const canvasPt = unitToCanvas(pt.x, pt.y);
+                totalBluePoints++;
+                
+                // Check a small area around the point (brush radius)
+                let found = false;
+                for (let dx = -brushSize; dx <= brushSize && !found; dx++) {
+                    for (let dy = -brushSize; dy <= brushSize && !found; dy++) {
+                        if (isBluePixel(canvasPt.x + dx, canvasPt.y + dy)) {
+                            found = true;
+                        }
+                    }
+                }
+                if (found) matchingBluePoints++;
+            });
+        });
+        
+        blueOverlap = totalBluePoints > 0 ? (matchingBluePoints / totalBluePoints) * 100 : 0;
+    }
+    
+    return { red: redOverlap, blue: blueOverlap };
 }
 
 // ============================================
