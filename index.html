@@ -380,18 +380,61 @@ function drawGrid() {
     ctx.beginPath(); ctx.moveTo(0, CENTER); ctx.lineTo(CANVAS_SIZE, CENTER); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(CENTER, 0); ctx.lineTo(CENTER, CANVAS_SIZE); ctx.stroke();
     
-    // Labels
-    ctx.fillStyle = '#4b5563';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.textAlign = 'center';
+    // Labels - larger, bolder, with background for visibility
+    ctx.font = 'bold 18px sans-serif';
+    
+    // X-axis labels (horizontal) - below the axis
+    ctx.textBaseline = 'top';
     for (let i = -UNIT_RANGE; i <= UNIT_RANGE; i += 2) {
         if (i === 0) continue;
-        ctx.fillText(i.toString(), unitToCanvas(i, 0).x, CENTER + 20);
+        let x = unitToCanvas(i, 0).x;
+        const y = CENTER + 6;
+        const text = i.toString();
+        const metrics = ctx.measureText(text);
+        
+        // Adjust edge labels so they don't get cut off
+        if (i === -UNIT_RANGE) {
+            ctx.textAlign = 'left';
+            x = Math.max(x - metrics.width/2, 4);
+        } else if (i === UNIT_RANGE) {
+            ctx.textAlign = 'right';
+            x = Math.min(x + metrics.width/2, CANVAS_SIZE - 4);
+        } else {
+            ctx.textAlign = 'center';
+        }
+        
+        // Draw background for better visibility
+        const bgX = ctx.textAlign === 'center' ? x - metrics.width/2 - 3 : 
+                    ctx.textAlign === 'left' ? x - 3 : x - metrics.width - 3;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(bgX, y - 1, metrics.width + 6, 22);
+        
+        // Draw text
+        ctx.fillStyle = '#111827';
+        ctx.fillText(text, x, y);
     }
+    
+    // Y-axis labels (vertical) - to the right of the axis
     ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
     for (let j = -UNIT_RANGE; j <= UNIT_RANGE; j += 2) {
         if (j === 0) continue;
-        ctx.fillText(j.toString(), CENTER + 10, unitToCanvas(0, j).y);
+        const x = CENTER + 6;
+        let y = unitToCanvas(0, j).y;
+        const text = j.toString();
+        const metrics = ctx.measureText(text);
+        
+        // Adjust edge labels so they don't get cut off
+        if (j === UNIT_RANGE) y = Math.max(y, 14);  // Top edge (+10)
+        if (j === -UNIT_RANGE) y = Math.min(y, CANVAS_SIZE - 14);  // Bottom edge (-10)
+        
+        // Draw background for better visibility
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(x - 2, y - 11, metrics.width + 6, 22);
+        
+        // Draw text
+        ctx.fillStyle = '#111827';
+        ctx.fillText(text, x, y);
     }
     
     ctx.restore();
@@ -1029,16 +1072,6 @@ function calcAvg(shapes) {
     return avg;
 }
 
-function genAvgCur() {
-    const d = curData();
-    if (!d) return status('No data');
-    let gen = false;
-    if (d.red.length) { d.redAvg = calcAvg(d.red); gen = true; }
-    if (d.blue.length) { d.blueAvg = calcAvg(d.blue); gen = true; }
-    if (gen) { redraw(); updateGallery(); status('Generated'); }
-    else status('No shapes');
-}
-
 function clearAvgCur() {
     // Clear all averages
     for (const p of Object.keys(allData)) {
@@ -1173,8 +1206,6 @@ function doBulk() {
     
     statusEl.textContent = `Generated composites for ${selF.length} frequencies (${totalRed} red, ${totalBlue} blue shapes)`;
     status(`Generated ${selF.length} frequency composites`);
-}
-    status(`Generated ${cnt} averages`);
 }
 
 // ============================================
@@ -1670,138 +1701,9 @@ function expCSV() {
 }
 
 function expJSON() {
-    const ex = { exportDate: new Date().toISOString(), version: '4.0', settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize }, allData };
+    const ex = { exportDate: new Date().toISOString(), version: '4.1', settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize }, allData };
     saveAs(new Blob([JSON.stringify(ex, null, 2)], { type: 'application/json' }), `contour_${new Date().toISOString().slice(0, 10)}.json`);
     status('JSON exported');
-}
-
-async function expSheets() {
-    const url = document.getElementById('sheets-url').value.trim();
-    if (!url) return status('Enter URL');
-    localStorage.setItem('sheetsUrl', url);
-    try {
-        status('Exporting...');
-        await fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'export', allData, settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize } }) });
-        status('Sent to Sheets');
-    } catch (e) { status('Error: ' + e.message); }
-}
-
-async function impSheets() {
-    const url = document.getElementById('sheets-url').value.trim();
-    if (!url) return status('Enter URL');
-    try {
-        status('Importing...');
-        const res = await fetch(url + '?action=import');
-        const d = await res.json();
-        if (d.allData) {
-            allData = d.allData;
-            const parts = new Map();
-            for (const p of Object.keys(allData)) {
-                parts.set(p, new Map());
-                for (const t of Object.keys(allData[p])) {
-                    parts.get(p).set(t, new Set());
-                    for (const fk of Object.keys(allData[p][t])) {
-                        const hz = parseFloat(fk);
-                        if (!isNaN(hz)) parts.get(p).get(t).add(hz);
-                    }
-                }
-            }
-            buildTabs(parts);
-            updateGallery();
-            status('Imported');
-        }
-    } catch (e) { status('Error: ' + e.message); }
-}
-
-async function expDrive() {
-    const url = document.getElementById('drive-url').value.trim();
-    if (!url) return status('Enter URL');
-    localStorage.setItem('driveUrl', url);
-    const imgs = [];
-    for (const p of Object.keys(allData)) {
-        for (const t of Object.keys(allData[p])) {
-            for (const fk of Object.keys(allData[p][t])) {
-                const d = allData[p][t][fk];
-                if (d.redAvg || d.blueAvg) {
-                    imgs.push({ filename: `${p}_${t}_${fk}_avg.png`, data: genImg(p, t, fk, d).split(',')[1] });
-                }
-            }
-        }
-    }
-    if (!imgs.length) return status('No averages');
-    try {
-        status('Uploading...');
-        await fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ images: imgs }) });
-        status(`${imgs.length} images sent`);
-    } catch (e) { status('Error: ' + e.message); }
-}
-
-function genImg(p, t, fk, d) {
-    const tc = document.createElement('canvas');
-    tc.width = tc.height = CANVAS_SIZE;
-    const cx = tc.getContext('2d');
-    cx.fillStyle = 'white'; cx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    
-    // Layer 1: Reference circle
-    cx.save();
-    cx.strokeStyle = '#e5e7eb';
-    cx.lineWidth = 2;
-    cx.beginPath();
-    cx.arc(CENTER, CENTER, BACKGROUND_CIRCLE_RADIUS * SCALE_FACTOR, 0, Math.PI * 2);
-    cx.stroke();
-    cx.restore();
-    
-    // Layer 2: Traced shapes at SHAPE_OPACITY (background)
-    d.red.forEach(s => { 
-        if (s.length < 2) return; 
-        cx.save();
-        cx.globalAlpha = SHAPE_OPACITY;
-        cx.strokeStyle = COLORS.red; 
-        cx.lineWidth = brushSize; 
-        cx.lineCap = 'round'; 
-        cx.beginPath(); 
-        const st = unitToCanvas(s[0].x, s[0].y); 
-        cx.moveTo(st.x, st.y); 
-        for (let i = 1; i < s.length; i++) { 
-            const pt = unitToCanvas(s[i].x, s[i].y); 
-            cx.lineTo(pt.x, pt.y); 
-        } 
-        cx.stroke(); 
-        cx.restore();
-    });
-    d.blue.forEach(s => { 
-        if (s.length < 2) return; 
-        cx.save();
-        cx.globalAlpha = SHAPE_OPACITY;
-        cx.strokeStyle = COLORS.blue; 
-        cx.lineWidth = brushSize; 
-        cx.lineCap = 'round'; 
-        cx.beginPath(); 
-        const st = unitToCanvas(s[0].x, s[0].y); 
-        cx.moveTo(st.x, st.y); 
-        for (let i = 1; i < s.length; i++) { 
-            const pt = unitToCanvas(s[i].x, s[i].y); 
-            cx.lineTo(pt.x, pt.y); 
-        } 
-        cx.stroke(); 
-        cx.restore();
-    });
-    
-    // Layer 3: Average shapes at full opacity (foreground)
-    if (d.redAvg?.length >= 2) { cx.strokeStyle = '#991b1b'; cx.lineWidth = 4; cx.lineCap = 'round'; cx.beginPath(); const st = unitToCanvas(d.redAvg[0].x, d.redAvg[0].y); cx.moveTo(st.x, st.y); for (let i = 1; i < d.redAvg.length; i++) { const pt = unitToCanvas(d.redAvg[i].x, d.redAvg[i].y); cx.lineTo(pt.x, pt.y); } cx.stroke(); }
-    if (d.blueAvg?.length >= 2) { cx.strokeStyle = '#1e3a8a'; cx.lineWidth = 4; cx.lineCap = 'round'; cx.beginPath(); const st = unitToCanvas(d.blueAvg[0].x, d.blueAvg[0].y); cx.moveTo(st.x, st.y); for (let i = 1; i < d.blueAvg.length; i++) { const pt = unitToCanvas(d.blueAvg[i].x, d.blueAvg[i].y); cx.lineTo(pt.x, pt.y); } cx.stroke(); }
-    
-    // Layer 4: Grid on top
-    cx.strokeStyle = '#e5e7eb'; cx.lineWidth = 1;
-    for (let i = -UNIT_RANGE + 1; i < UNIT_RANGE; i++) { if (i === 0) continue; const c = unitToCanvas(i, i); cx.beginPath(); cx.moveTo(0, c.y); cx.lineTo(CANVAS_SIZE, c.y); cx.stroke(); cx.beginPath(); cx.moveTo(c.x, 0); cx.lineTo(c.x, CANVAS_SIZE); cx.stroke(); }
-    cx.strokeStyle = '#6b7280'; cx.lineWidth = 2;
-    cx.beginPath(); cx.moveTo(0, CENTER); cx.lineTo(CANVAS_SIZE, CENTER); cx.stroke();
-    cx.beginPath(); cx.moveTo(CENTER, 0); cx.lineTo(CENTER, CANVAS_SIZE); cx.stroke();
-    
-    cx.fillStyle = '#1f2937'; cx.font = 'bold 24px sans-serif'; cx.textAlign = 'center';
-    cx.fillText(`${p} - ${t} - ${fk}`, CENTER, 40);
-    
-    return tc.toDataURL('image/png');
 }
 
 // ============================================
