@@ -89,15 +89,20 @@
                     <div class="slider-labels"><span>1px</span><span>5px</span><span>10px</span></div>
                 </div>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t">
                 <div class="bg-blue-50 p-4 rounded-xl">
                     <label class="font-bold text-gray-800">Resample Rate: <span id="resample-val" class="text-xl text-blue-600">1000</span></label>
                     <input id="resample-slider" type="range" min="500" max="10000" step="250" value="1000">
                     <div class="slider-labels"><span>500</span><span>5000</span><span>10000</span></div>
                 </div>
+                <div class="bg-purple-50 p-4 rounded-xl">
+                    <label class="font-bold text-gray-800">Image Opacity: <span id="img-opacity-val" class="text-xl text-purple-600">10%</span></label>
+                    <input id="img-opacity-slider" type="range" min="0" max="100" value="10">
+                    <div class="slider-labels"><span>0%</span><span>50%</span><span>100%</span></div>
+                </div>
                 <div class="bg-green-50 p-4 rounded-xl">
-                    <label class="font-bold text-gray-800">Shape Opacity: <span id="opacity-val" class="text-xl text-green-600">5%</span></label>
-                    <input id="opacity-slider" type="range" min="0" max="100" value="5">
+                    <label class="font-bold text-gray-800">Shape Opacity: <span id="shape-opacity-val" class="text-xl text-green-600">30%</span></label>
+                    <input id="shape-opacity-slider" type="range" min="0" max="100" value="30">
                     <div class="slider-labels"><span>0%</span><span>50%</span><span>100%</span></div>
                 </div>
             </div>
@@ -109,26 +114,39 @@
                 <button id="grid-btn" class="px-5 py-2 rounded-xl font-bold text-sm bg-gray-500 text-white shadow">📐 Grid</button>
             </div>
             <div id="status" class="text-sm text-gray-500 pt-2 border-t">Ready. Upload images to begin.</div>
+            <div class="pt-2 border-t text-sm">
+                <span class="font-semibold">Current:</span>
+                <span id="info-p" class="font-mono text-gray-700">-</span> |
+                <span id="info-t" class="font-mono text-gray-700">-</span> |
+                <span id="info-f" class="font-mono text-gray-700">-</span> |
+                Red: <span id="info-r" class="font-mono font-bold text-red-500">0</span> |
+                Blue: <span id="info-b" class="font-mono font-bold text-blue-500">0</span>
+            </div>
         </div>
         
-        <!-- Info + Average -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            <div class="bg-white p-6 rounded-xl shadow-lg">
-                <h2 class="font-bold text-gray-800 mb-4">Current Selection</h2>
-                <div class="space-y-1 text-sm">
-                    <p>Participant: <span id="info-p" class="font-mono font-bold">-</span></p>
-                    <p>Trial: <span id="info-t" class="font-mono font-bold">-</span></p>
-                    <p>Frequency: <span id="info-f" class="font-mono font-bold">-</span></p>
-                    <p>Red: <span id="info-r" class="font-mono font-bold text-red-500">0</span> | Blue: <span id="info-b" class="font-mono font-bold text-blue-500">0</span></p>
+        <!-- Generate Average Shapes Section - Below Controls, Above Export -->
+        <div class="bg-gradient-to-r from-emerald-50 to-teal-50 p-6 rounded-xl shadow-lg mb-6 border-2 border-emerald-200">
+            <h2 class="font-bold text-emerald-800 mb-4">Generate Average Shapes</h2>
+            
+            <!-- Current Selection Average -->
+            <div class="mb-4 p-4 bg-white rounded-xl">
+                <h3 class="font-semibold text-gray-700 mb-3">Current Selection</h3>
+                <div class="grid grid-cols-3 gap-3">
+                    <button id="gen-avg" class="px-4 py-2 rounded-xl font-bold text-sm bg-emerald-500 text-white shadow">Generate Current</button>
+                    <button id="bulk-avg" class="px-4 py-2 rounded-xl font-bold text-sm bg-indigo-500 text-white shadow">Bulk Generate...</button>
+                    <button id="clear-avg" class="px-4 py-2 rounded-xl font-bold text-sm bg-orange-400 text-white shadow">Clear Average</button>
                 </div>
             </div>
-            <div class="bg-white p-6 rounded-xl shadow-lg">
-                <h2 class="font-bold text-gray-800 mb-4">Average Shapes</h2>
-                <div class="space-y-2">
-                    <button id="gen-avg" class="w-full px-4 py-2 rounded-xl font-bold text-sm bg-emerald-500 text-white shadow">📊 Generate Current</button>
-                    <button id="bulk-avg" class="w-full px-4 py-2 rounded-xl font-bold text-sm bg-indigo-500 text-white shadow">📦 Bulk Generate...</button>
-                    <button id="clear-avg" class="w-full px-4 py-2 rounded-xl font-bold text-sm bg-orange-400 text-white shadow">🧹 Clear Average</button>
+            
+            <!-- Cross-Participant Frequency Averaging -->
+            <div class="p-4 bg-white rounded-xl">
+                <h3 class="font-semibold text-gray-700 mb-3">Cross-Participant Frequency Averages</h3>
+                <p class="text-xs text-gray-500 mb-3">Generate average shapes across ALL participants for each frequency. Creates PNG images with transparent individual traces and solid average contours.</p>
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="gen-freq-avg" class="px-4 py-2 rounded-xl font-bold text-sm bg-teal-600 text-white shadow">Generate Frequency Averages</button>
+                    <button id="export-freq-png" class="px-4 py-2 rounded-xl font-bold text-sm bg-cyan-600 text-white shadow">Export as PNG Images</button>
                 </div>
+                <div id="freq-avg-status" class="text-xs text-gray-500 mt-3"></div>
             </div>
         </div>
         
@@ -148,8 +166,8 @@
         <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
             <h3 class="font-bold text-gray-800 mb-4">Export Data</h3>
             <div class="grid grid-cols-2 gap-3">
-                <button id="exp-csv" class="px-4 py-2 rounded-xl font-bold text-sm bg-teal-500 text-white shadow">📄 CSV</button>
-                <button id="exp-json" class="px-4 py-2 rounded-xl font-bold text-sm bg-purple-500 text-white shadow">📦 JSON</button>
+                <button id="exp-csv" class="px-4 py-2 rounded-xl font-bold text-sm bg-teal-500 text-white shadow">CSV</button>
+                <button id="exp-json" class="px-4 py-2 rounded-xl font-bold text-sm bg-purple-500 text-white shadow">JSON</button>
             </div>
         </div>
         
@@ -244,7 +262,6 @@ const UNIT_RANGE = 10;
 const SCALE_FACTOR = CANVAS_SIZE / (UNIT_RANGE * 2); // = 50
 const CENTER = CANVAS_SIZE / 2; // = 500
 const BACKGROUND_CIRCLE_RADIUS = 3; // units
-const IMAGE_OPACITY = 0.10;
 
 const FREQUENCIES = [
     { hz: 62.5, db: 100 },
@@ -262,7 +279,9 @@ const COLORS = { red: '#ef4444', blue: '#3b82f6' };
 // ============================================
 let canvas, ctx;
 let showGrid = true, drawingOn = true, isDrawing = false;
-let selColor = 'red', brushSize = 5, resampleRate = 1000, shapeOpacity = 5;
+let selColor = 'red', brushSize = 5, resampleRate = 1000;
+let IMAGE_OPACITY = 0.1;
+let SHAPE_OPACITY = 0.3; // Opacity for background traced shapes (0-1)
 let curPath = [];
 let allData = {}, images = {}, trialMapping = {};
 let curParticipant = null, curTrial = null, curFreq = null;
@@ -423,24 +442,16 @@ function redraw() {
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
     
-    // Background image at 10% opacity
-    // CRITICAL: Images must be drawn at exact 1:1 pixel mapping for accurate tracing
-    // Original PNGs are 1000x1000 pixels matching our canvas exactly
-    // The grid in the PNG aligns with our canvas grid (-10 to +10 units, 50px per unit)
+    // Layer 1: Background image at configurable opacity
     const ik = curParticipant && curTrial && curFreq ? `${curParticipant}|${curTrial}|${fKey(curFreq)}` : null;
     if (ik && images[ik]) {
         ctx.save();
         ctx.globalAlpha = IMAGE_OPACITY;
         
         const img = images[ik];
-        // Draw at 0,0 to ensure the image grid aligns with canvas grid
-        // Both use: 1000x1000 pixels, center at (500,500), scale of 50px per unit
         if (img.naturalWidth === CANVAS_SIZE && img.naturalHeight === CANVAS_SIZE) {
-            // Perfect match - draw directly
             ctx.drawImage(img, 0, 0);
         } else {
-            // Scale to fit canvas while maintaining aspect ratio at center
-            // This ensures the coordinate system still aligns
             const scale = Math.min(CANVAS_SIZE / img.naturalWidth, CANVAS_SIZE / img.naturalHeight);
             const scaledW = img.naturalWidth * scale;
             const scaledH = img.naturalHeight * scale;
@@ -452,17 +463,24 @@ function redraw() {
         ctx.restore();
     }
     
+    // Layer 2: Reference circle
     drawRefCircle();
     
+    // Layer 3: Traced shapes with configurable opacity (in background)
     const d = curData();
     if (d) {
-        const op = shapeOpacity / 100;
-        d.red.forEach(s => drawShape(s, COLORS.red, op));
-        d.blue.forEach(s => drawShape(s, COLORS.blue, op));
+        // Traced shapes at configurable opacity
+        d.red.forEach(s => drawShape(s, COLORS.red, SHAPE_OPACITY));
+        d.blue.forEach(s => drawShape(s, COLORS.blue, SHAPE_OPACITY));
+    }
+    
+    // Layer 4: Average shapes at full opacity on top
+    if (d) {
         if (d.redAvg) drawAvgShape(d.redAvg, COLORS.red);
         if (d.blueAvg) drawAvgShape(d.blueAvg, COLORS.blue);
     }
     
+    // Layer 5: Grid on top of everything
     drawGrid();
     updateInfo();
 }
@@ -827,10 +845,20 @@ function handleJson(file) {
                     document.getElementById('resample-slider').value = resampleRate;
                     document.getElementById('resample-val').textContent = resampleRate;
                 }
+                if (d.settings.imageOpacity !== undefined) {
+                    IMAGE_OPACITY = d.settings.imageOpacity / 100;
+                    document.getElementById('img-opacity-slider').value = d.settings.imageOpacity;
+                    document.getElementById('img-opacity-val').textContent = d.settings.imageOpacity + '%';
+                }
                 if (d.settings.shapeOpacity !== undefined) {
-                    shapeOpacity = d.settings.shapeOpacity;
-                    document.getElementById('opacity-slider').value = shapeOpacity;
-                    document.getElementById('opacity-val').textContent = shapeOpacity + '%';
+                    SHAPE_OPACITY = d.settings.shapeOpacity / 100;
+                    document.getElementById('shape-opacity-slider').value = d.settings.shapeOpacity;
+                    document.getElementById('shape-opacity-val').textContent = d.settings.shapeOpacity + '%';
+                }
+                if (d.settings.brushSize) {
+                    brushSize = d.settings.brushSize;
+                    document.getElementById('brush-slider').value = brushSize;
+                    document.getElementById('brush-val').textContent = brushSize;
                 }
             }
             
@@ -1058,6 +1086,249 @@ function doBulk() {
     status(`Generated ${cnt} averages`);
 }
 
+// ============================================
+// CROSS-PARTICIPANT FREQUENCY AVERAGING
+// ============================================
+
+// Store frequency averages: { hz: { redAvg: [...], blueAvg: [...], redShapes: [...], blueShapes: [...] } }
+let frequencyAverages = {};
+
+/**
+ * Generate average shapes across ALL participants for each frequency
+ * Collects all red shapes and all blue shapes for each frequency,
+ * then computes a single average for each color per frequency
+ */
+function generateFrequencyAverages() {
+    const statusEl = document.getElementById('freq-avg-status');
+    statusEl.textContent = 'Generating frequency averages...';
+    
+    frequencyAverages = {};
+    let totalRed = 0, totalBlue = 0;
+    
+    // Collect all shapes by frequency
+    for (const freq of FREQUENCIES) {
+        const fk = fKey(freq);
+        const hzKey = freq.hz;
+        
+        frequencyAverages[hzKey] = {
+            redShapes: [],
+            blueShapes: [],
+            redAvg: null,
+            blueAvg: null
+        };
+        
+        // Iterate through all participants and trials
+        for (const p of Object.keys(allData)) {
+            for (const t of Object.keys(allData[p])) {
+                // Find matching frequency key
+                for (const dataFk of Object.keys(allData[p][t])) {
+                    // Match by frequency value (ignore dB)
+                    const dataHz = parseFloat(dataFk);
+                    if (Math.abs(dataHz - freq.hz) < 0.1) {
+                        const d = allData[p][t][dataFk];
+                        if (d.red) {
+                            d.red.forEach(shape => {
+                                if (shape && shape.length > 2) {
+                                    frequencyAverages[hzKey].redShapes.push(shape);
+                                    totalRed++;
+                                }
+                            });
+                        }
+                        if (d.blue) {
+                            d.blue.forEach(shape => {
+                                if (shape && shape.length > 2) {
+                                    frequencyAverages[hzKey].blueShapes.push(shape);
+                                    totalBlue++;
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Calculate averages for this frequency
+        if (frequencyAverages[hzKey].redShapes.length > 0) {
+            frequencyAverages[hzKey].redAvg = calcAvg(frequencyAverages[hzKey].redShapes);
+        }
+        if (frequencyAverages[hzKey].blueShapes.length > 0) {
+            frequencyAverages[hzKey].blueAvg = calcAvg(frequencyAverages[hzKey].blueShapes);
+        }
+    }
+    
+    // Count frequencies with averages
+    let freqsWithData = 0;
+    for (const hz of Object.keys(frequencyAverages)) {
+        if (frequencyAverages[hz].redAvg || frequencyAverages[hz].blueAvg) {
+            freqsWithData++;
+        }
+    }
+    
+    statusEl.textContent = `Generated averages for ${freqsWithData} frequencies (${totalRed} red shapes, ${totalBlue} blue shapes)`;
+    status(`Frequency averages generated: ${freqsWithData} frequencies`);
+}
+
+/**
+ * Export frequency averages as PNG images
+ * Creates one image per frequency with:
+ * - Individual traced shapes at configurable opacity (background)
+ * - Average shapes at full opacity (foreground)
+ * - Grid on top
+ */
+function exportFrequencyPNGs() {
+    const statusEl = document.getElementById('freq-avg-status');
+    
+    // Check if averages have been generated
+    const hasData = Object.keys(frequencyAverages).some(hz => 
+        frequencyAverages[hz].redAvg || frequencyAverages[hz].blueAvg
+    );
+    
+    if (!hasData) {
+        statusEl.textContent = 'Please generate frequency averages first';
+        return;
+    }
+    
+    statusEl.textContent = 'Creating PNG images...';
+    
+    const promises = [];
+    
+    for (const freq of FREQUENCIES) {
+        const hzKey = freq.hz;
+        const data = frequencyAverages[hzKey];
+        
+        if (!data || (!data.redAvg && !data.blueAvg)) continue;
+        
+        // Create canvas for this frequency
+        const tc = document.createElement('canvas');
+        tc.width = tc.height = CANVAS_SIZE;
+        const cx = tc.getContext('2d');
+        
+        // White background
+        cx.fillStyle = 'white';
+        cx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        
+        // Layer 1: Reference circle
+        cx.save();
+        cx.strokeStyle = '#e5e7eb';
+        cx.lineWidth = 2;
+        cx.beginPath();
+        cx.arc(CENTER, CENTER, BACKGROUND_CIRCLE_RADIUS * SCALE_FACTOR, 0, Math.PI * 2);
+        cx.stroke();
+        cx.restore();
+        
+        // Layer 2: Individual traced shapes at SHAPE_OPACITY
+        if (data.redShapes) {
+            data.redShapes.forEach(shape => {
+                if (shape && shape.length >= 2) {
+                    cx.save();
+                    cx.globalAlpha = SHAPE_OPACITY;
+                    cx.strokeStyle = COLORS.red;
+                    cx.lineWidth = brushSize;
+                    cx.lineCap = 'round';
+                    cx.lineJoin = 'round';
+                    cx.beginPath();
+                    const st = unitToCanvas(shape[0].x, shape[0].y);
+                    cx.moveTo(st.x, st.y);
+                    for (let i = 1; i < shape.length; i++) {
+                        const pt = unitToCanvas(shape[i].x, shape[i].y);
+                        cx.lineTo(pt.x, pt.y);
+                    }
+                    cx.stroke();
+                    cx.restore();
+                }
+            });
+        }
+        
+        if (data.blueShapes) {
+            data.blueShapes.forEach(shape => {
+                if (shape && shape.length >= 2) {
+                    cx.save();
+                    cx.globalAlpha = SHAPE_OPACITY;
+                    cx.strokeStyle = COLORS.blue;
+                    cx.lineWidth = brushSize;
+                    cx.lineCap = 'round';
+                    cx.lineJoin = 'round';
+                    cx.beginPath();
+                    const st = unitToCanvas(shape[0].x, shape[0].y);
+                    cx.moveTo(st.x, st.y);
+                    for (let i = 1; i < shape.length; i++) {
+                        const pt = unitToCanvas(shape[i].x, shape[i].y);
+                        cx.lineTo(pt.x, pt.y);
+                    }
+                    cx.stroke();
+                    cx.restore();
+                }
+            });
+        }
+        
+        // Layer 3: Average shapes at full opacity
+        if (data.redAvg && data.redAvg.length >= 2) {
+            cx.strokeStyle = '#991b1b'; // Dark red
+            cx.lineWidth = 4;
+            cx.lineCap = 'round';
+            cx.lineJoin = 'round';
+            cx.beginPath();
+            const st = unitToCanvas(data.redAvg[0].x, data.redAvg[0].y);
+            cx.moveTo(st.x, st.y);
+            for (let i = 1; i < data.redAvg.length; i++) {
+                const pt = unitToCanvas(data.redAvg[i].x, data.redAvg[i].y);
+                cx.lineTo(pt.x, pt.y);
+            }
+            cx.stroke();
+        }
+        
+        if (data.blueAvg && data.blueAvg.length >= 2) {
+            cx.strokeStyle = '#1e3a8a'; // Dark blue
+            cx.lineWidth = 4;
+            cx.lineCap = 'round';
+            cx.lineJoin = 'round';
+            cx.beginPath();
+            const st = unitToCanvas(data.blueAvg[0].x, data.blueAvg[0].y);
+            cx.moveTo(st.x, st.y);
+            for (let i = 1; i < data.blueAvg.length; i++) {
+                const pt = unitToCanvas(data.blueAvg[i].x, data.blueAvg[i].y);
+                cx.lineTo(pt.x, pt.y);
+            }
+            cx.stroke();
+        }
+        
+        // Layer 4: Grid on top
+        cx.strokeStyle = '#e5e7eb';
+        cx.lineWidth = 1;
+        for (let i = -UNIT_RANGE + 1; i < UNIT_RANGE; i++) {
+            if (i === 0) continue;
+            const c = unitToCanvas(i, i);
+            cx.beginPath(); cx.moveTo(0, c.y); cx.lineTo(CANVAS_SIZE, c.y); cx.stroke();
+            cx.beginPath(); cx.moveTo(c.x, 0); cx.lineTo(c.x, CANVAS_SIZE); cx.stroke();
+        }
+        cx.strokeStyle = '#6b7280';
+        cx.lineWidth = 2;
+        cx.beginPath(); cx.moveTo(0, CENTER); cx.lineTo(CANVAS_SIZE, CENTER); cx.stroke();
+        cx.beginPath(); cx.moveTo(CENTER, 0); cx.lineTo(CENTER, CANVAS_SIZE); cx.stroke();
+        
+        // Title
+        cx.fillStyle = '#1f2937';
+        cx.font = 'bold 24px sans-serif';
+        cx.textAlign = 'center';
+        cx.fillText(`${hzKey} Hz - All Participants Average`, CENTER, 40);
+        
+        // Stats
+        cx.font = '14px sans-serif';
+        cx.fillStyle = '#6b7280';
+        const redCount = data.redShapes ? data.redShapes.length : 0;
+        const blueCount = data.blueShapes ? data.blueShapes.length : 0;
+        cx.fillText(`Red: ${redCount} shapes | Blue: ${blueCount} shapes`, CENTER, CANVAS_SIZE - 20);
+        
+        // Save as PNG
+        tc.toBlob(blob => {
+            saveAs(blob, `frequency_avg_${hzKey}Hz.png`);
+        });
+    }
+    
+    statusEl.textContent = 'PNG images exported!';
+    status('Frequency PNG images exported');
+}
+
 function updateGallery() {
     const g = document.getElementById('gallery');
     g.innerHTML = '';
@@ -1075,11 +1346,14 @@ function updateGallery() {
                     cv.className = 'w-full rounded-lg border bg-white mb-2';
                     const cx = cv.getContext('2d');
                     cx.fillStyle = 'white'; cx.fillRect(0, 0, 200, 200);
-                    const sc = 200 / CANVAS_SIZE, op = shapeOpacity / 100;
-                    d.red.forEach(s => drawPreview(cx, s, COLORS.red, sc, op));
-                    d.blue.forEach(s => drawPreview(cx, s, COLORS.blue, sc, op));
+                    const sc = 200 / CANVAS_SIZE;
+                    // Traced shapes at SHAPE_OPACITY (background)
+                    d.red.forEach(s => drawPreview(cx, s, COLORS.red, sc, SHAPE_OPACITY));
+                    d.blue.forEach(s => drawPreview(cx, s, COLORS.blue, sc, SHAPE_OPACITY));
+                    // Average shapes with darker colors at full opacity (foreground)
                     if (d.redAvg) drawPreview(cx, d.redAvg, '#991b1b', sc, 1, 3);
                     if (d.blueAvg) drawPreview(cx, d.blueAvg, '#1e3a8a', sc, 1, 3);
+                    // Grid on top
                     drawMiniGrid(cx, 200);
                     card.appendChild(cv);
                     card.innerHTML += `<p class="text-xs font-semibold">${p} - ${t}</p><p class="text-xs text-gray-500">${fk}</p>`;
@@ -1164,7 +1438,7 @@ function expCSV() {
 }
 
 function expJSON() {
-    const ex = { exportDate: new Date().toISOString(), version: '2.0', settings: { resampleRate, shapeOpacity, brushSize }, allData };
+    const ex = { exportDate: new Date().toISOString(), version: '4.0', settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize }, allData };
     saveAs(new Blob([JSON.stringify(ex, null, 2)], { type: 'application/json' }), `contour_${new Date().toISOString().slice(0, 10)}.json`);
     status('JSON exported');
 }
@@ -1175,7 +1449,7 @@ async function expSheets() {
     localStorage.setItem('sheetsUrl', url);
     try {
         status('Exporting...');
-        await fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'export', allData, settings: { resampleRate, shapeOpacity, brushSize } }) });
+        await fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'export', allData, settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize } }) });
         status('Sent to Sheets');
     } catch (e) { status('Error: ' + e.message); }
 }
@@ -1235,15 +1509,57 @@ function genImg(p, t, fk, d) {
     tc.width = tc.height = CANVAS_SIZE;
     const cx = tc.getContext('2d');
     cx.fillStyle = 'white'; cx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    const op = shapeOpacity / 100;
     
-    d.red.forEach(s => { if (s.length < 2) return; cx.save(); cx.globalAlpha = op; cx.strokeStyle = COLORS.red; cx.lineWidth = brushSize; cx.lineCap = 'round'; cx.beginPath(); const st = unitToCanvas(s[0].x, s[0].y); cx.moveTo(st.x, st.y); for (let i = 1; i < s.length; i++) { const pt = unitToCanvas(s[i].x, s[i].y); cx.lineTo(pt.x, pt.y); } cx.stroke(); cx.restore(); });
-    d.blue.forEach(s => { if (s.length < 2) return; cx.save(); cx.globalAlpha = op; cx.strokeStyle = COLORS.blue; cx.lineWidth = brushSize; cx.lineCap = 'round'; cx.beginPath(); const st = unitToCanvas(s[0].x, s[0].y); cx.moveTo(st.x, st.y); for (let i = 1; i < s.length; i++) { const pt = unitToCanvas(s[i].x, s[i].y); cx.lineTo(pt.x, pt.y); } cx.stroke(); cx.restore(); });
+    // Layer 1: Reference circle
+    cx.save();
+    cx.strokeStyle = '#e5e7eb';
+    cx.lineWidth = 2;
+    cx.beginPath();
+    cx.arc(CENTER, CENTER, BACKGROUND_CIRCLE_RADIUS * SCALE_FACTOR, 0, Math.PI * 2);
+    cx.stroke();
+    cx.restore();
     
+    // Layer 2: Traced shapes at SHAPE_OPACITY (background)
+    d.red.forEach(s => { 
+        if (s.length < 2) return; 
+        cx.save();
+        cx.globalAlpha = SHAPE_OPACITY;
+        cx.strokeStyle = COLORS.red; 
+        cx.lineWidth = brushSize; 
+        cx.lineCap = 'round'; 
+        cx.beginPath(); 
+        const st = unitToCanvas(s[0].x, s[0].y); 
+        cx.moveTo(st.x, st.y); 
+        for (let i = 1; i < s.length; i++) { 
+            const pt = unitToCanvas(s[i].x, s[i].y); 
+            cx.lineTo(pt.x, pt.y); 
+        } 
+        cx.stroke(); 
+        cx.restore();
+    });
+    d.blue.forEach(s => { 
+        if (s.length < 2) return; 
+        cx.save();
+        cx.globalAlpha = SHAPE_OPACITY;
+        cx.strokeStyle = COLORS.blue; 
+        cx.lineWidth = brushSize; 
+        cx.lineCap = 'round'; 
+        cx.beginPath(); 
+        const st = unitToCanvas(s[0].x, s[0].y); 
+        cx.moveTo(st.x, st.y); 
+        for (let i = 1; i < s.length; i++) { 
+            const pt = unitToCanvas(s[i].x, s[i].y); 
+            cx.lineTo(pt.x, pt.y); 
+        } 
+        cx.stroke(); 
+        cx.restore();
+    });
+    
+    // Layer 3: Average shapes at full opacity (foreground)
     if (d.redAvg?.length >= 2) { cx.strokeStyle = '#991b1b'; cx.lineWidth = 4; cx.lineCap = 'round'; cx.beginPath(); const st = unitToCanvas(d.redAvg[0].x, d.redAvg[0].y); cx.moveTo(st.x, st.y); for (let i = 1; i < d.redAvg.length; i++) { const pt = unitToCanvas(d.redAvg[i].x, d.redAvg[i].y); cx.lineTo(pt.x, pt.y); } cx.stroke(); }
     if (d.blueAvg?.length >= 2) { cx.strokeStyle = '#1e3a8a'; cx.lineWidth = 4; cx.lineCap = 'round'; cx.beginPath(); const st = unitToCanvas(d.blueAvg[0].x, d.blueAvg[0].y); cx.moveTo(st.x, st.y); for (let i = 1; i < d.blueAvg.length; i++) { const pt = unitToCanvas(d.blueAvg[i].x, d.blueAvg[i].y); cx.lineTo(pt.x, pt.y); } cx.stroke(); }
     
-    // Grid
+    // Layer 4: Grid on top
     cx.strokeStyle = '#e5e7eb'; cx.lineWidth = 1;
     for (let i = -UNIT_RANGE + 1; i < UNIT_RANGE; i++) { if (i === 0) continue; const c = unitToCanvas(i, i); cx.beginPath(); cx.moveTo(0, c.y); cx.lineTo(CANVAS_SIZE, c.y); cx.stroke(); cx.beginPath(); cx.moveTo(c.x, 0); cx.lineTo(c.x, CANVAS_SIZE); cx.stroke(); }
     cx.strokeStyle = '#6b7280'; cx.lineWidth = 2;
@@ -1298,24 +1614,46 @@ async function saveToCloud() {
         tracerName: tracerName,
         savedAt: new Date().toISOString(),
         allData: allData,
-        settings: { resampleRate, shapeOpacity, brushSize }
+        settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize }
     };
     
     try {
-        setCloudStatus('☁️ Saving to cloud...');
+        setCloudStatus('Saving to cloud...');
         status('Saving to cloud...');
         
-        const response = await fetch(url, {
+        // Use no-cors mode since Google Apps Script redirects
+        // The actual save happens on the server side
+        await fetch(url, {
             method: 'POST',
             mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'text/plain' },
             body: JSON.stringify(saveData)
         });
         
-        setCloudStatus(`✅ Saved as "${tracerName}" at ${new Date().toLocaleTimeString()}`);
+        // Since no-cors doesn't return response, we assume success if no error thrown
+        // Verify by doing a quick load check
+        setTimeout(async () => {
+            try {
+                const checkUrl = `${url}?action=listTracers`;
+                const checkResp = await fetch(checkUrl);
+                if (checkResp.ok) {
+                    const data = await checkResp.json();
+                    const found = data.tracers?.find(t => t.name === tracerName);
+                    if (found) {
+                        setCloudStatus(`Saved as "${tracerName}" at ${new Date().toLocaleTimeString()} (${found.totalShapes} shapes)`);
+                    } else {
+                        setCloudStatus(`Saved as "${tracerName}" at ${new Date().toLocaleTimeString()}`);
+                    }
+                }
+            } catch (e) {
+                // Verification failed but save may have worked
+                setCloudStatus(`Saved as "${tracerName}" at ${new Date().toLocaleTimeString()}`);
+            }
+        }, 1500);
+        
         status('Saved to cloud');
     } catch (e) {
-        setCloudStatus('❌ Save failed: ' + e.message, true);
+        setCloudStatus('Save failed: ' + e.message, true);
         status('Cloud save failed');
     }
 }
@@ -1355,10 +1693,15 @@ async function loadFromCloud(tracerNameOverride = null) {
                     document.getElementById('resample-slider').value = resampleRate;
                     document.getElementById('resample-val').textContent = resampleRate;
                 }
+                if (data.settings.imageOpacity !== undefined) {
+                    IMAGE_OPACITY = data.settings.imageOpacity / 100;
+                    document.getElementById('img-opacity-slider').value = data.settings.imageOpacity;
+                    document.getElementById('img-opacity-val').textContent = data.settings.imageOpacity + '%';
+                }
                 if (data.settings.shapeOpacity !== undefined) {
-                    shapeOpacity = data.settings.shapeOpacity;
-                    document.getElementById('opacity-slider').value = shapeOpacity;
-                    document.getElementById('opacity-val').textContent = shapeOpacity + '%';
+                    SHAPE_OPACITY = data.settings.shapeOpacity / 100;
+                    document.getElementById('shape-opacity-slider').value = data.settings.shapeOpacity;
+                    document.getElementById('shape-opacity-val').textContent = data.settings.shapeOpacity + '%';
                 }
                 if (data.settings.brushSize) {
                     brushSize = data.settings.brushSize;
@@ -1535,7 +1878,8 @@ function init() {
     
     document.getElementById('brush-slider').oninput = e => { brushSize = +e.target.value; document.getElementById('brush-val').textContent = brushSize; };
     document.getElementById('resample-slider').oninput = e => { resampleRate = +e.target.value; document.getElementById('resample-val').textContent = resampleRate; };
-    document.getElementById('opacity-slider').oninput = e => { shapeOpacity = +e.target.value; document.getElementById('opacity-val').textContent = shapeOpacity + '%'; redraw(); updateGallery(); };
+    document.getElementById('img-opacity-slider').oninput = e => { IMAGE_OPACITY = +e.target.value / 100; document.getElementById('img-opacity-val').textContent = e.target.value + '%'; redraw(); };
+    document.getElementById('shape-opacity-slider').oninput = e => { SHAPE_OPACITY = +e.target.value / 100; document.getElementById('shape-opacity-val').textContent = e.target.value + '%'; redraw(); };
     
     document.getElementById('toggle-draw').onclick = () => { drawingOn = !drawingOn; const b = document.getElementById('toggle-draw'); b.textContent = drawingOn ? '✏️ Drawing: ON' : '✏️ Drawing: OFF'; b.className = b.className.replace(drawingOn ? 'bg-red' : 'bg-green', drawingOn ? 'bg-green' : 'bg-red'); canvas.style.cursor = drawingOn ? 'crosshair' : 'default'; };
     document.getElementById('undo-btn').onclick = undo;
@@ -1550,6 +1894,8 @@ function init() {
     document.getElementById('gen-avg').onclick = genAvgCur;
     document.getElementById('bulk-avg').onclick = openModal;
     document.getElementById('clear-avg').onclick = clearAvgCur;
+    document.getElementById('gen-freq-avg').onclick = generateFrequencyAverages;
+    document.getElementById('export-freq-png').onclick = exportFrequencyPNGs;
     
     document.getElementById('close-modal').onclick = () => document.getElementById('modal').classList.remove('active');
     document.getElementById('cancel-modal').onclick = () => document.getElementById('modal').classList.remove('active');
