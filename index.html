@@ -1,2617 +1,1281 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Sound Object Contour Tracer | UCI Hearing & Speech Lab</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    <style>
-        * { -webkit-tap-highlight-color: transparent; }
-        body { min-height: 100vh; font-family: ui-sans-serif, system-ui, sans-serif; background: #f3f4f6; }
-        #canvas-container { max-width: 100%; width: 100%; margin: 0 auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-radius: 0.75rem; overflow: hidden; background: #fff; touch-action: none; aspect-ratio: 1; }
-        #drawing-canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
-        input[type="range"] { -webkit-appearance: none; background: transparent; cursor: pointer; width: 100%; height: 40px; }
-        input[type="range"]::-webkit-slider-runnable-track { background: linear-gradient(to right, #3b82f6, #8b5cf6); height: 8px; border-radius: 4px; }
-        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 24px; width: 24px; background: #000; border: 3px solid #fff; border-radius: 50%; cursor: grab; margin-top: -8px; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
-        input[type="range"]::-moz-range-track { background: linear-gradient(to right, #3b82f6, #8b5cf6); height: 8px; border-radius: 4px; }
-        input[type="range"]::-moz-range-thumb { height: 24px; width: 24px; background: #000; border: 3px solid #fff; border-radius: 50%; cursor: grab; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
-        .slider-labels { display: flex; justify-content: space-between; font-size: 11px; color: #6b7280; margin-top: 4px; }
-        .tab-btn { transition: all 0.2s; }
-        .tab-btn.active { background: linear-gradient(to right, #3b82f6, #8b5cf6) !important; color: white !important; transform: scale(1.05); }
-        .trial-btn.active { background: linear-gradient(to right, #10b981, #059669) !important; color: white !important; }
-        .freq-btn.active { background: linear-gradient(to right, #f59e0b, #d97706) !important; color: white !important; }
-        .color-button.selected { border: 4px solid white !important; box-shadow: 0 0 0 4px #3b82f6 !important; transform: scale(1.15) !important; }
-        .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; opacity: 0; visibility: hidden; transition: all 0.3s; }
-        .modal.active { opacity: 1; visibility: visible; }
-        .modal-content { background: white; border-radius: 16px; padding: 1.5rem; max-width: 900px; width: 95%; max-height: 90vh; overflow-y: auto; }
-        .checkbox-grid { display: grid; gap: 0.5rem; max-height: 200px; overflow-y: auto; }
-        .checkbox-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: #f8fafc; border-radius: 6px; cursor: pointer; }
-        .data-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
-        .data-table th { background: #f1f5f9; padding: 0.5rem; text-align: left; font-weight: 600; }
-        .data-table td { padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-family: monospace; }
-    </style>
-</head>
-<body class="p-4 sm:p-8">
-    <div class="max-w-6xl mx-auto">
-        <header class="text-center mb-6">
-            <h1 class="text-4xl font-extrabold text-blue-800 mb-2">Sound Object Contour Tracer</h1>
-            <p class="text-xl font-semibold text-gray-600">UCI Hearing & Speech Lab</p>
-            <p class="text-sm text-gray-400 mt-1">v4.1 — Last updated: January 13, 2026</p>
-        </header>
-        
-        <!-- Upload -->
-        <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
-            <h2 class="text-lg font-bold text-gray-800 mb-4">📁 Upload Images or Import Data</h2>
-            <div class="flex flex-wrap gap-3">
-                <label class="px-6 py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg cursor-pointer">📁 Upload ZIP<input type="file" id="zip-upload" accept=".zip" class="hidden"></label>
-                <label class="px-6 py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg cursor-pointer">🖼️ Single PNG<input type="file" id="single-upload" accept="image/png" class="hidden"></label>
-                <label class="px-6 py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-teal-500 to-teal-600 text-white shadow-lg cursor-pointer">📥 Import JSON<input type="file" id="json-import" accept=".json" class="hidden"></label>
-            </div>
-            <p class="mt-3 text-sm text-gray-500">Supports nested ZIPs. Structure: ParticipantName/TrialFolder/filename.png</p>
-            <div id="upload-log" class="mt-3 text-xs text-gray-600 font-mono max-h-64 overflow-y-auto border border-gray-200 rounded-lg p-2 bg-gray-50 hidden"></div>
-        </div>
-        
-        <!-- Participant Tabs -->
-        <div id="participant-section" class="bg-white p-4 rounded-xl shadow-lg mb-4 hidden">
-            <h2 class="text-lg font-bold text-gray-800 mb-3">Select Participant</h2>
-            <div id="participant-tabs" class="flex flex-wrap gap-2"></div>
-        </div>
-        
-        <!-- Trial Tabs -->
-        <div id="trial-section" class="bg-white p-4 rounded-xl shadow-lg mb-4 hidden">
-            <h2 class="text-lg font-bold text-gray-800 mb-3">Select Trial</h2>
-            <div id="trial-tabs" class="flex flex-wrap gap-2"></div>
-        </div>
-        
-        <!-- Frequency Tabs -->
-        <div id="frequency-section" class="bg-white p-4 rounded-xl shadow-lg mb-4 hidden">
-            <h2 class="text-lg font-bold text-gray-800 mb-3">Select Frequency</h2>
-            <div id="frequency-tabs" class="flex flex-wrap gap-2"></div>
-        </div>
-        
-        <!-- Canvas -->
-        <div id="canvas-container" class="bg-white rounded-xl shadow-2xl mb-4"><canvas id="drawing-canvas"></canvas></div>
-        
-        <!-- Tracing Statistics Section -->
-        <div id="stats-section" class="bg-gradient-to-r from-gray-50 to-slate-50 p-4 rounded-xl shadow-lg mb-6 border border-gray-200 hidden">
-            <h3 class="font-bold text-gray-700 mb-3">📊 Tracing Statistics</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="bg-white p-3 rounded-lg border border-red-200">
-                    <h4 class="font-semibold text-red-600 mb-2">Red (0° IPD)</h4>
-                    <div class="text-sm space-y-1">
-                        <div>Shapes traced: <span id="stats-red-shapes" class="font-mono font-bold">0</span></div>
-                        <div>Total points: <span id="stats-red-points" class="font-mono font-bold">0</span></div>
-                        <div>Image overlap: <span id="stats-red-overlap" class="font-mono font-bold">-</span></div>
-                        <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
-                            <div id="stats-red-bar" class="bg-red-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="bg-white p-3 rounded-lg border border-blue-200">
-                    <h4 class="font-semibold text-blue-600 mb-2">Blue (90° right-leading IPD)</h4>
-                    <div class="text-sm space-y-1">
-                        <div>Shapes traced: <span id="stats-blue-shapes" class="font-mono font-bold">0</span></div>
-                        <div>Total points: <span id="stats-blue-points" class="font-mono font-bold">0</span></div>
-                        <div>Image overlap: <span id="stats-blue-overlap" class="font-mono font-bold">-</span></div>
-                        <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
-                            <div id="stats-blue-bar" class="bg-blue-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <p class="text-xs text-gray-500 mt-3">Overlap measures how well traced contours match the original drawing pixels (higher = better match).</p>
-        </div>
-        
-        <!-- Controls -->
-        <div class="bg-white p-4 rounded-xl shadow-lg mb-6 space-y-4">
-            <div class="flex flex-wrap items-start gap-6">
-                <div>
-                    <p class="font-bold text-gray-800 mb-2">Color</p>
-                    <div class="flex gap-3">
-                        <button id="color-red" class="color-button w-12 h-12 rounded-full shadow-md border-4 border-gray-200 selected" style="background:#ef4444;"></button>
-                        <button id="color-blue" class="color-button w-12 h-12 rounded-full shadow-md border-4 border-gray-200" style="background:#3b82f6;"></button>
-                    </div>
-                </div>
-                <div class="flex-1 min-w-[250px]">
-                    <label class="font-bold text-gray-800">Brush Size: <span id="brush-val" class="text-xl text-blue-600">5</span></label>
-                    <input id="brush-slider" type="range" min="1" max="10" value="5">
-                    <div class="slider-labels"><span>1px</span><span>5px</span><span>10px</span></div>
-                </div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t">
-                <div class="bg-blue-50 p-4 rounded-xl">
-                    <label class="font-bold text-gray-800">Resample Rate: <span id="resample-val" class="text-xl text-blue-600">1000</span></label>
-                    <input id="resample-slider" type="range" min="500" max="10000" step="250" value="1000">
-                    <div class="slider-labels"><span>500</span><span>5000</span><span>10000</span></div>
-                </div>
-                <div class="bg-purple-50 p-4 rounded-xl">
-                    <label class="font-bold text-gray-800">Image Opacity: <span id="img-opacity-val" class="text-xl text-purple-600">50%</span></label>
-                    <input id="img-opacity-slider" type="range" min="0" max="100" value="50">
-                    <div class="slider-labels"><span>0%</span><span>50%</span><span>100%</span></div>
-                </div>
-                <div class="bg-green-50 p-4 rounded-xl">
-                    <label class="font-bold text-gray-800">Shape Opacity: <span id="shape-opacity-val" class="text-xl text-green-600">30%</span></label>
-                    <input id="shape-opacity-slider" type="range" min="0" max="100" value="30">
-                    <div class="slider-labels"><span>0%</span><span>50%</span><span>100%</span></div>
-                </div>
-            </div>
-            <div class="flex flex-wrap gap-2 pt-4 border-t">
-                <button id="toggle-draw" class="px-5 py-2 rounded-xl font-bold text-sm bg-green-500 text-white shadow">✏️ Drawing: ON</button>
-                <button id="undo-btn" disabled class="px-5 py-2 rounded-xl font-bold text-sm bg-yellow-400 text-gray-900 shadow disabled:opacity-50">↩️ Undo</button>
-                <button id="redo-btn" disabled class="px-5 py-2 rounded-xl font-bold text-sm bg-yellow-400 text-gray-900 shadow disabled:opacity-50">↪️ Redo</button>
-                <button id="clear-btn" class="px-5 py-2 rounded-xl font-bold text-sm bg-red-500 text-white shadow">🗑️ Clear</button>
-                <button id="grid-btn" class="px-5 py-2 rounded-xl font-bold text-sm bg-gray-500 text-white shadow">📐 Grid</button>
-            </div>
-            <div id="status" class="text-sm text-gray-500 pt-2 border-t">Ready. Upload images to begin.</div>
-            <div class="pt-2 border-t text-sm">
-                <span class="font-semibold">Current:</span>
-                <span id="info-p" class="font-mono text-gray-700">-</span> |
-                <span id="info-t" class="font-mono text-gray-700">-</span> |
-                <span id="info-f" class="font-mono text-gray-700">-</span> |
-                Red: <span id="info-r" class="font-mono font-bold text-red-500">0</span> |
-                Blue: <span id="info-b" class="font-mono font-bold text-blue-500">0</span>
-            </div>
-        </div>
-        
-        <!-- Generate Average Shapes Section - Below Controls, Above Export -->
-        <div class="bg-gradient-to-r from-emerald-50 to-teal-50 p-6 rounded-xl shadow-lg mb-6 border-2 border-emerald-200">
-            <h2 class="font-bold text-emerald-800 mb-4">Generate Composite Images</h2>
-            <p class="text-xs text-gray-500 mb-4">Generate average shapes across ALL participants for each frequency. Creates PNG images with transparent individual traces and solid average contours.</p>
-            
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <button id="gen-freq-avg" class="px-4 py-2 rounded-xl font-bold text-sm bg-teal-600 text-white shadow">Generate Averages</button>
-                <button id="bulk-avg" class="px-4 py-2 rounded-xl font-bold text-sm bg-indigo-500 text-white shadow">Select Frequencies...</button>
-                <button id="export-freq-png" class="px-4 py-2 rounded-xl font-bold text-sm bg-cyan-600 text-white shadow">Export PNGs</button>
-                <button id="clear-avg" class="px-4 py-2 rounded-xl font-bold text-sm bg-orange-400 text-white shadow">Clear Averages</button>
-            </div>
-            <div id="freq-avg-status" class="text-xs text-gray-500"></div>
-        </div>
-        
-        <!-- Data Table -->
-        <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
-            <div class="flex justify-between mb-4">
-                <h2 class="font-bold text-blue-700">Coordinate Data</h2>
-                <button id="toggle-data" class="px-4 py-1 rounded-lg text-sm bg-gray-100">Show/Hide</button>
-            </div>
-            <div id="data-box" class="hidden max-h-80 overflow-auto">
-                <table class="data-table"><thead><tr><th>Participant</th><th>Trial</th><th>Freq</th><th>Color</th><th>#</th><th>Pts</th><th>Sample</th></tr></thead><tbody id="data-body"><tr><td colspan="7" class="text-center text-gray-400 py-8">No data</td></tr></tbody></table>
-            </div>
-            <p class="text-xs text-gray-500 mt-2">Grid: 1000×1000px canvas, 20×20 units (-10 to +10), 50px per unit. Images align 1:1 with grid.</p>
-        </div>
-        
-        <!-- Export -->
-        <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
-            <h3 class="font-bold text-gray-800 mb-4">Export Data</h3>
-            <div class="grid grid-cols-2 gap-3">
-                <button id="exp-csv" class="px-4 py-2 rounded-xl font-bold text-sm bg-teal-500 text-white shadow">CSV</button>
-                <button id="exp-json" class="px-4 py-2 rounded-xl font-bold text-sm bg-purple-500 text-white shadow">JSON</button>
-            </div>
-        </div>
-        
-        <!-- Cloud Collaboration -->
-        <div class="bg-gradient-to-r from-indigo-50 to-purple-50 p-6 rounded-xl shadow-lg mb-6 border-2 border-indigo-200">
-            <h3 class="font-bold text-indigo-800 mb-3">☁️ Cloud Collaboration (Google Sheets)</h3>
-            <p class="text-xs text-gray-600 mb-4">Multiple tracers can save/load progress. Each person's work is stored separately and can be merged.</p>
-            
-            <div class="mb-4">
-                <label class="block text-sm font-semibold text-gray-700 mb-1">Apps Script URL</label>
-                <input id="cloud-url" placeholder="https://script.google.com/macros/s/..." class="w-full px-3 py-2 border-2 border-indigo-300 rounded-xl text-sm">
-            </div>
-            
-            <div class="mb-4">
-                <label class="block text-sm font-semibold text-gray-700 mb-1">Your Tracer Name</label>
-                <input id="tracer-name" placeholder="e.g., James, Sarah, Lab_Assistant_1" class="w-full px-3 py-2 border-2 border-indigo-300 rounded-xl text-sm">
-            </div>
-            
-            <div class="grid grid-cols-2 gap-3 mb-4">
-                <button id="cloud-save" class="px-4 py-2 rounded-xl font-bold text-sm bg-green-500 text-white shadow">💾 Save to Cloud</button>
-                <button id="cloud-load" class="px-4 py-2 rounded-xl font-bold text-sm bg-blue-500 text-white shadow">📂 Load My Progress</button>
-            </div>
-            
-            <div class="border-t border-indigo-200 pt-4 mt-4">
-                <h4 class="font-semibold text-gray-700 mb-2">Team Collaboration</h4>
-                <div class="grid grid-cols-3 gap-3 mb-3">
-                    <button id="cloud-list" class="px-4 py-2 rounded-xl font-bold text-sm bg-indigo-500 text-white shadow">👥 List Tracers</button>
-                    <button id="cloud-load-all" class="px-4 py-2 rounded-xl font-bold text-sm bg-purple-500 text-white shadow">📥 Load All</button>
-                    <button id="cloud-merge" class="px-4 py-2 rounded-xl font-bold text-sm bg-orange-500 text-white shadow">🔀 Merge All</button>
-                </div>
-                <div class="flex gap-2 mb-2">
-                    <select id="tracer-select" class="flex-1 px-3 py-2 border-2 border-indigo-300 rounded-xl text-sm">
-                        <option value="">-- Select tracer to load --</option>
-                    </select>
-                    <button id="cloud-load-other" class="px-4 py-2 rounded-xl font-bold text-sm bg-cyan-500 text-white shadow">Load</button>
-                    <button id="cloud-add-other" class="px-4 py-2 rounded-xl font-bold text-sm bg-teal-500 text-white shadow">+ Add</button>
-                </div>
-                <p class="text-xs text-gray-500">Load = replace current data | Add = merge with current data</p>
-            </div>
-            
-            <div class="border-t border-indigo-200 pt-4 mt-4">
-                <div class="flex items-center gap-3">
-                    <button id="auto-cloud-toggle" class="px-4 py-2 rounded-xl font-bold text-sm bg-amber-500 text-white shadow">⚡ Auto-Save: OFF</button>
-                    <span class="text-xs text-gray-500">Auto-saves to cloud after each shape</span>
-                </div>
-            </div>
-            
-            <p id="cloud-status" class="text-xs text-gray-500 mt-3"></p>
-        </div>
-        
-        <!-- Gallery -->
-        <div class="bg-white p-6 rounded-xl shadow-lg">
-            <h3 class="font-bold text-gray-800 mb-4">Average Shapes Gallery</h3>
-            <div id="gallery" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"><div class="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center text-gray-400">No averages yet</div></div>
-        </div>
-    </div>
-    
-    <!-- Frequency Selection Modal -->
-    <div id="modal" class="modal">
-        <div class="modal-content" style="max-width: 500px;">
-            <div class="flex justify-between mb-4">
-                <h2 class="font-bold text-xl">Select Frequencies for Composite</h2>
-                <button id="close-modal" class="p-2 hover:bg-gray-100 rounded">✕</button>
-            </div>
-            <p class="text-sm text-gray-600 mb-4">Choose which frequencies to include in the composite image generation.</p>
-            <div class="mb-4">
-                <div class="flex justify-between items-center mb-2">
-                    <h4 class="font-semibold">Frequencies</h4>
-                    <button id="sel-all-f" class="text-xs text-blue-600 hover:underline">Select All</button>
-                </div>
-                <div id="mod-f" class="checkbox-grid grid-cols-2"></div>
-            </div>
-            <div class="flex justify-end gap-2">
-                <button id="cancel-modal" class="px-4 py-2 rounded-xl bg-gray-200 font-bold">Cancel</button>
-                <button id="do-bulk" class="px-4 py-2 rounded-xl bg-emerald-500 text-white font-bold">Generate Composites</button>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Cloud Save Progress Popup -->
-    <div id="cloud-progress-modal" class="modal">
-        <div class="modal-content" style="max-width: 400px;">
-            <div class="text-center">
-                <div id="cloud-progress-icon" class="text-5xl mb-4">☁️</div>
-                <h2 id="cloud-progress-title" class="font-bold text-xl mb-2">Saving to Cloud...</h2>
-                <p id="cloud-progress-message" class="text-gray-600 mb-4">Uploading your traced data</p>
-                
-                <!-- Progress bar -->
-                <div class="w-full bg-gray-200 rounded-full h-3 mb-4">
-                    <div id="cloud-progress-bar" class="bg-gradient-to-r from-blue-500 to-purple-500 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
-                </div>
-                
-                <p id="cloud-progress-details" class="text-sm text-gray-500"></p>
-                
-                <!-- Success/Error details (hidden initially) -->
-                <div id="cloud-progress-result" class="hidden mt-4 p-4 rounded-xl">
-                    <p id="cloud-result-text" class="font-semibold"></p>
-                    <p id="cloud-result-details" class="text-sm mt-2"></p>
-                </div>
-                
-                <!-- Close button (hidden during progress) -->
-                <button id="cloud-progress-close" class="hidden mt-4 px-6 py-2 rounded-xl font-bold text-sm bg-gray-500 text-white shadow">Close</button>
-            </div>
-        </div>
-    </div>
-
-<script>
-// ============================================
-// CONSTANTS - MATCHING ORIGINAL APP EXACTLY
-// ============================================
-const CANVAS_SIZE = 1000;
-const UNIT_RANGE = 10;
-const SCALE_FACTOR = CANVAS_SIZE / (UNIT_RANGE * 2); // = 50
-const CENTER = CANVAS_SIZE / 2; // = 500
-const BACKGROUND_CIRCLE_RADIUS = 3; // units
-
-const FREQUENCIES = [
-    { hz: 62.5, db: 100 },
-    { hz: 125, db: 90 },
-    { hz: 250, db: 85 },
-    { hz: 500, db: 80 },
-    { hz: 1000, db: 80 },
-    { hz: 2000, db: 80 }
-];
-
-const COLORS = { red: '#ef4444', blue: '#3b82f6' };
-
-// ============================================
-// STATE
-// ============================================
-let canvas, ctx;
-let showGrid = true, drawingOn = true, isDrawing = false;
-let selColor = 'red', brushSize = 5, resampleRate = 1000;
-let IMAGE_OPACITY = 0.5;
-let SHAPE_OPACITY = 0.3; // Opacity for background traced shapes (0-1)
-let curPath = [];
-let allData = {}, images = {}, trialMapping = {};
-let curParticipant = null, curTrial = null, curFreq = null;
-let undoStack = [], redoStack = [];
-
-// ============================================
-// COORDINATE TRANSFORMS - EXACT MATCH
-// ============================================
-function canvasToUnit(x, y) {
-    return {
-        x: (x - CENTER) / SCALE_FACTOR,
-        y: (CENTER - y) / SCALE_FACTOR
-    };
-}
-
-function unitToCanvas(x, y) {
-    return {
-        x: x * SCALE_FACTOR + CENTER,
-        y: CENTER - y * SCALE_FACTOR
-    };
-}
-
-// ============================================
-// HELPERS
-// ============================================
-const fKey = f => `${f.hz}Hz_${f.db}dB`;
-const dataKey = () => curParticipant && curTrial && curFreq ? `${curParticipant}|${curTrial}|${fKey(curFreq)}` : null;
-const status = m => document.getElementById('status').textContent = m;
-const log = m => { const el = document.getElementById('upload-log'); el.classList.remove('hidden'); el.innerHTML += m + '<br>'; el.scrollTop = el.scrollHeight; };
-
-function ensureData(p, t, f) {
-    if (!allData[p]) allData[p] = {};
-    if (!allData[p][t]) allData[p][t] = {};
-    if (!allData[p][t][f]) allData[p][t][f] = { red: [], blue: [], redAvg: null, blueAvg: null };
-    return allData[p][t][f];
-}
-
-function curData() {
-    return curParticipant && curTrial && curFreq ? ensureData(curParticipant, curTrial, fKey(curFreq)) : null;
-}
-
-// ============================================
-// RESAMPLING
-// ============================================
-function resample(pts, n) {
-    if (pts.length < 2) return pts;
-    let len = 0;
-    const segs = [];
-    for (let i = 0; i < pts.length - 1; i++) {
-        const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y);
-        segs.push(d);
-        len += d;
-    }
-    if (len === 0) return [pts[0]];
-    const res = [{ ...pts[0] }];
-    const iv = len / (n - 1);
-    let cd = 0, si = 0;
-    for (let i = 1; i < n - 1; i++) {
-        const td = i * iv;
-        while (si < segs.length && cd + segs[si] < td) cd += segs[si++];
-        if (si >= segs.length) break;
-        const pr = (td - cd) / segs[si];
-        res.push({ x: pts[si].x + (pts[si+1].x - pts[si].x) * pr, y: pts[si].y + (pts[si+1].y - pts[si].y) * pr });
-    }
-    res.push({ ...pts[pts.length - 1] });
-    return res;
-}
-
-// ============================================
-// DRAWING - EXACT GRID MATCH
-// ============================================
-function drawGrid() {
-    if (!showGrid) return;
-    ctx.save();
-    
-    // Minor grid lines
-    ctx.strokeStyle = '#e5e7eb';
-    ctx.lineWidth = 1;
-    for (let i = -UNIT_RANGE + 1; i < UNIT_RANGE; i++) {
-        if (i === 0) continue;
-        const c = unitToCanvas(i, i);
-        ctx.beginPath(); ctx.moveTo(0, c.y); ctx.lineTo(CANVAS_SIZE, c.y); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(c.x, 0); ctx.lineTo(c.x, CANVAS_SIZE); ctx.stroke();
-    }
-    
-    // Major axes
-    ctx.strokeStyle = '#6b7280';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(0, CENTER); ctx.lineTo(CANVAS_SIZE, CENTER); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(CENTER, 0); ctx.lineTo(CENTER, CANVAS_SIZE); ctx.stroke();
-    
-    // Labels - larger, bolder, with background for visibility
-    ctx.font = 'bold 18px sans-serif';
-    
-    // X-axis labels (horizontal) - below the axis
-    ctx.textBaseline = 'top';
-    for (let i = -UNIT_RANGE; i <= UNIT_RANGE; i += 2) {
-        if (i === 0) continue;
-        let x = unitToCanvas(i, 0).x;
-        const y = CENTER + 6;
-        const text = i.toString();
-        const metrics = ctx.measureText(text);
-        
-        // Adjust edge labels so they don't get cut off
-        if (i === -UNIT_RANGE) {
-            ctx.textAlign = 'left';
-            x = Math.max(x - metrics.width/2, 4);
-        } else if (i === UNIT_RANGE) {
-            ctx.textAlign = 'right';
-            x = Math.min(x + metrics.width/2, CANVAS_SIZE - 4);
-        } else {
-            ctx.textAlign = 'center';
-        }
-        
-        // Draw background for better visibility
-        const bgX = ctx.textAlign === 'center' ? x - metrics.width/2 - 3 : 
-                    ctx.textAlign === 'left' ? x - 3 : x - metrics.width - 3;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(bgX, y - 1, metrics.width + 6, 22);
-        
-        // Draw text
-        ctx.fillStyle = '#111827';
-        ctx.fillText(text, x, y);
-    }
-    
-    // Y-axis labels (vertical) - to the right of the axis
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    for (let j = -UNIT_RANGE; j <= UNIT_RANGE; j += 2) {
-        if (j === 0) continue;
-        const x = CENTER + 6;
-        let y = unitToCanvas(0, j).y;
-        const text = j.toString();
-        const metrics = ctx.measureText(text);
-        
-        // Adjust edge labels so they don't get cut off
-        if (j === UNIT_RANGE) y = Math.max(y, 14);  // Top edge (+10)
-        if (j === -UNIT_RANGE) y = Math.min(y, CANVAS_SIZE - 14);  // Bottom edge (-10)
-        
-        // Draw background for better visibility
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(x - 2, y - 11, metrics.width + 6, 22);
-        
-        // Draw text
-        ctx.fillStyle = '#111827';
-        ctx.fillText(text, x, y);
-    }
-    
-    ctx.restore();
-}
-
-function drawRefCircle() {
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(CENTER, CENTER, BACKGROUND_CIRCLE_RADIUS * SCALE_FACTOR, 0, 2 * Math.PI);
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.restore();
-}
-
-function drawShape(s, clr, op = 1, lw = null) {
-    if (!s || s.length < 2) return;
-    ctx.save();
-    ctx.globalAlpha = op;
-    ctx.strokeStyle = clr;
-    ctx.lineWidth = lw || brushSize;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    const st = unitToCanvas(s[0].x, s[0].y);
-    ctx.moveTo(st.x, st.y);
-    for (let i = 1; i < s.length; i++) {
-        const p = unitToCanvas(s[i].x, s[i].y);
-        ctx.lineTo(p.x, p.y);
-    }
-    ctx.stroke();
-    ctx.restore();
-}
-
-function drawAvgShape(s, clr) {
-    if (!s || s.length < 2) return;
-    ctx.save();
-    ctx.strokeStyle = clr === COLORS.red ? '#991b1b' : '#1e3a8a';
-    ctx.lineWidth = 4;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    const st = unitToCanvas(s[0].x, s[0].y);
-    ctx.moveTo(st.x, st.y);
-    for (let i = 1; i < s.length; i++) {
-        const p = unitToCanvas(s[i].x, s[i].y);
-        ctx.lineTo(p.x, p.y);
-    }
-    ctx.stroke();
-    ctx.restore();
-}
-
-function redraw() {
-    ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    
-    // Layer 1: Background image at configurable opacity
-    const ik = curParticipant && curTrial && curFreq ? `${curParticipant}|${curTrial}|${fKey(curFreq)}` : null;
-    if (ik && images[ik]) {
-        ctx.save();
-        ctx.globalAlpha = IMAGE_OPACITY;
-        
-        const img = images[ik];
-        if (img.naturalWidth === CANVAS_SIZE && img.naturalHeight === CANVAS_SIZE) {
-            ctx.drawImage(img, 0, 0);
-        } else {
-            const scale = Math.min(CANVAS_SIZE / img.naturalWidth, CANVAS_SIZE / img.naturalHeight);
-            const scaledW = img.naturalWidth * scale;
-            const scaledH = img.naturalHeight * scale;
-            const offsetX = (CANVAS_SIZE - scaledW) / 2;
-            const offsetY = (CANVAS_SIZE - scaledH) / 2;
-            ctx.drawImage(img, offsetX, offsetY, scaledW, scaledH);
-        }
-        
-        ctx.restore();
-    }
-    
-    // Layer 2: Reference circle
-    drawRefCircle();
-    
-    // Layer 3: Traced shapes with configurable opacity (in background)
-    const d = curData();
-    if (d) {
-        // Traced shapes at configurable opacity
-        d.red.forEach(s => drawShape(s, COLORS.red, SHAPE_OPACITY));
-        d.blue.forEach(s => drawShape(s, COLORS.blue, SHAPE_OPACITY));
-    }
-    
-    // Layer 4: Average shapes at full opacity on top
-    if (d) {
-        if (d.redAvg) drawAvgShape(d.redAvg, COLORS.red);
-        if (d.blueAvg) drawAvgShape(d.blueAvg, COLORS.blue);
-    }
-    
-    // Layer 5: Grid on top of everything
-    drawGrid();
-    updateInfo();
-    updateStatistics();
-}
-
-function updateInfo() {
-    document.getElementById('info-p').textContent = curParticipant || '-';
-    document.getElementById('info-t').textContent = curTrial || '-';
-    document.getElementById('info-f').textContent = curFreq ? `${curFreq.hz} Hz` : '-';
-    const d = curData();
-    document.getElementById('info-r').textContent = d ? d.red.length : 0;
-    document.getElementById('info-b').textContent = d ? d.blue.length : 0;
-}
-
-// ============================================
-// TRACING STATISTICS
-// ============================================
-function updateStatistics() {
-    const statsSection = document.getElementById('stats-section');
-    const d = curData();
-    const ik = curParticipant && curTrial && curFreq ? `${curParticipant}|${curTrial}|${fKey(curFreq)}` : null;
-    const img = ik ? images[ik] : null;
-    
-    // Show/hide stats section based on whether we have data
-    if (!d || (!d.red.length && !d.blue.length)) {
-        statsSection.classList.add('hidden');
-        return;
-    }
-    
-    statsSection.classList.remove('hidden');
-    
-    // Count shapes and points
-    const redShapes = d.red.length;
-    const blueShapes = d.blue.length;
-    const redPoints = d.red.reduce((sum, s) => sum + (s ? s.length : 0), 0);
-    const bluePoints = d.blue.reduce((sum, s) => sum + (s ? s.length : 0), 0);
-    
-    document.getElementById('stats-red-shapes').textContent = redShapes;
-    document.getElementById('stats-blue-shapes').textContent = blueShapes;
-    document.getElementById('stats-red-points').textContent = redPoints;
-    document.getElementById('stats-blue-points').textContent = bluePoints;
-    
-    // Calculate overlap with original image if available
-    if (img) {
-        const overlap = calculateImageOverlap(img, d);
-        
-        document.getElementById('stats-red-overlap').textContent = overlap.red !== null ? `${overlap.red.toFixed(1)}%` : 'N/A';
-        document.getElementById('stats-blue-overlap').textContent = overlap.blue !== null ? `${overlap.blue.toFixed(1)}%` : 'N/A';
-        document.getElementById('stats-red-bar').style.width = overlap.red !== null ? `${overlap.red}%` : '0%';
-        document.getElementById('stats-blue-bar').style.width = overlap.blue !== null ? `${overlap.blue}%` : '0%';
-    } else {
-        document.getElementById('stats-red-overlap').textContent = 'No image';
-        document.getElementById('stats-blue-overlap').textContent = 'No image';
-        document.getElementById('stats-red-bar').style.width = '0%';
-        document.getElementById('stats-blue-bar').style.width = '0%';
-    }
-}
-
 /**
- * Calculate how well traced contours overlap with original image pixels
- * Returns percentage of traced pixels that overlap with non-white pixels in the original
+ * Sound Object Contour Tracer - Cloud Collaboration Script v4.1
+ * UCI Hearing & Speech Lab
+ * Last Updated: January 13, 2026
+ * 
+ * This script receives traced contour data from the Contour Tracer web tool
+ * and stores it in a Google Sheet for collaborative work.
+ * 
+ * IMPORTANT: Large JSON data is automatically split across multiple cells
+ * (Google Sheets has a 50,000 character limit per cell). The load function
+ * automatically reassembles these chunks.
+ * 
+ * Setup Instructions:
+ * 1. Create a new Google Sheet
+ * 2. Go to Extensions > Apps Script
+ * 3. Delete any existing code and paste this entire script
+ * 4. Update SHEET_ID below with your Google Sheet ID (from URL)
+ * 5. Click "Deploy" > "New Deployment"
+ * 6. Choose type: "Web app"
+ * 7. Execute as: "Me"
+ * 8. Who has access: "Anyone"
+ * 9. Deploy and copy the Web App URL
+ * 10. Use this URL in the Contour Tracer tool
  */
-function calculateImageOverlap(img, data) {
-    // Create temporary canvas to analyze the image
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = CANVAS_SIZE;
-    tempCanvas.height = CANVAS_SIZE;
-    const tempCtx = tempCanvas.getContext('2d');
-    
-    // Draw the original image
-    tempCtx.fillStyle = '#fff';
-    tempCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    
-    if (img.naturalWidth === CANVAS_SIZE && img.naturalHeight === CANVAS_SIZE) {
-        tempCtx.drawImage(img, 0, 0);
-    } else {
-        const scale = Math.min(CANVAS_SIZE / img.naturalWidth, CANVAS_SIZE / img.naturalHeight);
-        const scaledW = img.naturalWidth * scale;
-        const scaledH = img.naturalHeight * scale;
-        const offsetX = (CANVAS_SIZE - scaledW) / 2;
-        const offsetY = (CANVAS_SIZE - scaledH) / 2;
-        tempCtx.drawImage(img, offsetX, offsetY, scaledW, scaledH);
-    }
-    
-    // Get image data
-    const imageData = tempCtx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    const pixels = imageData.data;
-    
-    // Helper to get RGB values at a pixel
-    function getRGB(x, y) {
-        if (x < 0 || x >= CANVAS_SIZE || y < 0 || y >= CANVAS_SIZE) return null;
-        const idx = (Math.floor(y) * CANVAS_SIZE + Math.floor(x)) * 4;
-        return { r: pixels[idx], g: pixels[idx + 1], b: pixels[idx + 2] };
-    }
-    
-    // Check if pixel is canvas/grid (black, gray, or white) - should be ignored
-    function isCanvasOrGrid(r, g, b) {
-        // Check for grayscale (r ≈ g ≈ b)
-        const maxDiff = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(r - b));
-        return maxDiff < 30; // If all channels are within 30 of each other, it's grayscale
-    }
-    
-    // Check if pixel contains red/pink color
-    // Includes: red, pink, magenta, red over gray/black
-    function hasRedComponent(r, g, b) {
-        if (isCanvasOrGrid(r, g, b)) return false;
-        
-        // Pure red or red-dominant
-        if (r > 150 && r > g * 1.2 && r > b * 1.2) return true;
-        
-        // Pink (red + white blend): high red, moderate-high green and blue but red still highest
-        if (r > 180 && g > 100 && b > 100 && r > g && r > b) return true;
-        
-        // Magenta/pink: high red and blue, lower green
-        if (r > 150 && b > 100 && r > g * 1.3 && g < 150) return true;
-        
-        // Red over gray: red channel elevated compared to a gray baseline
-        // If it would be gray but red is boosted
-        const avgGB = (g + b) / 2;
-        if (r > avgGB + 40 && r > 100) return true;
-        
-        // Red over black: low overall but red is dominant
-        if (r > 50 && r > g * 1.5 && r > b * 1.5 && g < 100 && b < 100) return true;
-        
-        // Light red/salmon
-        if (r > 200 && g > 120 && g < 180 && b > 100 && b < 160 && r > g && r > b) return true;
-        
-        return false;
-    }
-    
-    // Check if pixel contains blue color
-    // Includes: blue, cyan-ish blue, blue over gray/black
-    function hasBlueComponent(r, g, b) {
-        if (isCanvasOrGrid(r, g, b)) return false;
-        
-        // Pure blue or blue-dominant
-        if (b > 150 && b > r * 1.2 && b > g * 1.1) return true;
-        
-        // Cyan-blue: high blue and green, lower red
-        if (b > 150 && g > 100 && b >= g && r < g) return true;
-        
-        // Light blue: high blue with moderate other channels but blue still highest
-        if (b > 180 && g > 100 && r > 80 && b > r && b > g) return true;
-        
-        // Blue over gray: blue channel elevated compared to a gray baseline
-        const avgRG = (r + g) / 2;
-        if (b > avgRG + 40 && b > 100) return true;
-        
-        // Blue over black: low overall but blue is dominant
-        if (b > 50 && b > r * 1.5 && b > g * 1.3 && r < 100) return true;
-        
-        // Steel blue / muted blue
-        if (b > 120 && b > r && b > g * 0.9 && r < 150) return true;
-        
-        return false;
-    }
-    
-    // Check if pixel is purple (counts as both red AND blue)
-    function isPurple(r, g, b) {
-        if (isCanvasOrGrid(r, g, b)) return false;
-        
-        // Purple: significant red and blue, less green
-        if (r > 100 && b > 100 && r > g * 1.2 && b > g * 1.2) return true;
-        
-        // Magenta: high red and blue, low green
-        if (r > 150 && b > 150 && g < 120) return true;
-        
-        // Violet: blue-dominant purple
-        if (b > 120 && r > 80 && b > g && r > g && g < 150) return true;
-        
-        // Light purple/lavender
-        if (r > 150 && b > 150 && g > 100 && g < r && g < b) return true;
-        
-        return false;
-    }
-    
-    // Check if a pixel matches red criteria (including purple)
-    function isRedPixel(x, y) {
-        const rgb = getRGB(x, y);
-        if (!rgb) return false;
-        return hasRedComponent(rgb.r, rgb.g, rgb.b) || isPurple(rgb.r, rgb.g, rgb.b);
-    }
-    
-    // Check if a pixel matches blue criteria (including purple)
-    function isBluePixel(x, y) {
-        const rgb = getRGB(x, y);
-        if (!rgb) return false;
-        return hasBlueComponent(rgb.r, rgb.g, rgb.b) || isPurple(rgb.r, rgb.g, rgb.b);
-    }
-    
-    // Calculate overlap for red traces
-    let redOverlap = null;
-    if (data.red && data.red.length > 0) {
-        let totalRedPoints = 0;
-        let matchingRedPoints = 0;
-        
-        data.red.forEach(shape => {
-            if (!shape) return;
-            shape.forEach(pt => {
-                const canvasPt = unitToCanvas(pt.x, pt.y);
-                totalRedPoints++;
-                
-                // Check a small area around the point (brush radius)
-                let found = false;
-                for (let dx = -brushSize; dx <= brushSize && !found; dx++) {
-                    for (let dy = -brushSize; dy <= brushSize && !found; dy++) {
-                        if (isRedPixel(canvasPt.x + dx, canvasPt.y + dy)) {
-                            found = true;
-                        }
-                    }
-                }
-                if (found) matchingRedPoints++;
-            });
-        });
-        
-        redOverlap = totalRedPoints > 0 ? (matchingRedPoints / totalRedPoints) * 100 : 0;
-    }
-    
-    // Calculate overlap for blue traces
-    let blueOverlap = null;
-    if (data.blue && data.blue.length > 0) {
-        let totalBluePoints = 0;
-        let matchingBluePoints = 0;
-        
-        data.blue.forEach(shape => {
-            if (!shape) return;
-            shape.forEach(pt => {
-                const canvasPt = unitToCanvas(pt.x, pt.y);
-                totalBluePoints++;
-                
-                // Check a small area around the point (brush radius)
-                let found = false;
-                for (let dx = -brushSize; dx <= brushSize && !found; dx++) {
-                    for (let dy = -brushSize; dy <= brushSize && !found; dy++) {
-                        if (isBluePixel(canvasPt.x + dx, canvasPt.y + dy)) {
-                            found = true;
-                        }
-                    }
-                }
-                if (found) matchingBluePoints++;
-            });
-        });
-        
-        blueOverlap = totalBluePoints > 0 ? (matchingBluePoints / totalBluePoints) * 100 : 0;
-    }
-    
-    return { red: redOverlap, blue: blueOverlap };
-}
 
 // ============================================
-// DRAWING EVENTS
+// CONFIGURATION - UPDATE THIS
 // ============================================
-function getPoint(e) {
-    const r = canvas.getBoundingClientRect();
-    let cx, cy;
-    if (e.touches?.length) { cx = e.touches[0].clientX; cy = e.touches[0].clientY; }
-    else if (e.changedTouches?.length) { cx = e.changedTouches[0].clientX; cy = e.changedTouches[0].clientY; }
-    else { cx = e.clientX; cy = e.clientY; }
-    return { x: (cx - r.left) * (CANVAS_SIZE / r.width), y: (cy - r.top) * (CANVAS_SIZE / r.height) };
-}
+const SHEET_ID = '171gBcPHKi8AUmLK03vwPz9OH6vkg0fCS0M_eTP1ijo8'; // Get this from your sheet's URL: docs.google.com/spreadsheets/d/YOUR_ID_HERE/edit
 
-function startDraw(e) {
-    if (!drawingOn || !curParticipant) return;
-    isDrawing = true;
-    const p = getPoint(e);
-    curPath = [p];
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y);
-    ctx.strokeStyle = COLORS[selColor];
-    ctx.lineWidth = brushSize;
-    ctx.lineCap = 'round';
-    e.preventDefault();
-}
+// Sheet names
+const TRACERS_SHEET = 'TracerProgress';
+const COORDS_SHEET = 'CoordinateData';
+const SUMMARY_SHEET = 'Summary';
+const LOG_SHEET = 'ActivityLog';
 
-function doDraw(e) {
-    if (!isDrawing) return;
-    const p = getPoint(e);
-    curPath.push(p);
-    ctx.lineTo(p.x, p.y);
-    ctx.stroke();
-    e.preventDefault();
-}
-
-function endDraw() {
-    if (!isDrawing) return;
-    isDrawing = false;
-    if (curPath.length > 5) {
-        const d = curData();
-        undoStack.push({ key: dataKey(), data: JSON.parse(JSON.stringify(d)) });
-        redoStack = [];
-        const up = curPath.map(p => canvasToUnit(p.x, p.y));
-        const rs = resample(up, resampleRate);
-        d[selColor].push(rs);
-        redraw();
-        updateTable();
-        status(`Added ${selColor} (${rs.length} pts)`);
-        
-        // Trigger auto-save after each shape
-        triggerAutoSave();
-    }
-    curPath = [];
-    document.getElementById('undo-btn').disabled = !undoStack.length;
-    document.getElementById('redo-btn').disabled = !redoStack.length;
-}
-
-function undo() {
-    if (!undoStack.length) return;
-    const st = undoStack.pop();
-    const d = curData();
-    if (st.key === dataKey()) {
-        redoStack.push({ key: dataKey(), data: JSON.parse(JSON.stringify(d)) });
-        Object.assign(d, st.data);
-        redraw();
-        updateTable();
-    }
-    document.getElementById('undo-btn').disabled = !undoStack.length;
-    document.getElementById('redo-btn').disabled = !redoStack.length;
-}
-
-function redo() {
-    if (!redoStack.length) return;
-    const st = redoStack.pop();
-    const d = curData();
-    if (st.key === dataKey()) {
-        undoStack.push({ key: dataKey(), data: JSON.parse(JSON.stringify(d)) });
-        Object.assign(d, st.data);
-        redraw();
-        updateTable();
-    }
-    document.getElementById('undo-btn').disabled = !undoStack.length;
-    document.getElementById('redo-btn').disabled = !redoStack.length;
-}
+// Valid frequencies for the study
+const VALID_FREQUENCIES = [62.5, 125, 250, 500, 1000, 2000];
 
 // ============================================
-// FILE PARSING - Filename format: "ParticipantName_FrequencyHz_LoudnessdB.png"
+// MAIN POST HANDLER
 // ============================================
-function parseParticipant(fn) {
-    // Extract participant name: everything before _[number]Hz
-    // Example: "Jiaxin L_62.5Hz_100dB.png" -> "Jiaxin L"
-    const base = fn.replace(/\.png$/i, '');
-    const m = base.match(/^(.+?)_\d+(?:\.\d+)?[Hh]z/i);
-    return m ? m[1].trim() : fn.split('_')[0] || 'Unknown';
-}
 
-function parseFreq(fn) {
-    // Extract frequency: number followed by Hz
-    // Example: "Jiaxin L_62.5Hz_100dB.png" -> 62.5
-    const m = fn.match(/(\d+(?:\.\d+)?)\s*[Hh]z/i);
-    return m ? parseFloat(m[1]) : null;
-}
-
-// ============================================
-// ZIP PROCESSING - NESTED SUPPORT
-// Folder structure: "ParticipantName_FolderNumber_AnythingElse/filename.png"
-// Example: "Jiaxin L_11_Drawings 2/Jiaxin L_62.5Hz_100dB.png"
-// - Participant: "Jiaxin L"
-// - Folder number: 11 (used to determine trial order)
-// - Filename frequency: 62.5Hz
-// Trial numbers are sorted (e.g., 3, 5, 11) and mapped to Trial 1, 2, 3
-// ============================================
-async function processZip(zipFile) {
-    const zip = await JSZip.loadAsync(zipFile);
-    const fileInfos = [];
+function doPost(e) {
+  try {
+    // Log incoming data size
+    const rawData = e.postData.contents;
+    Logger.log('Received POST data size: ' + rawData.length + ' chars');
     
-    async function extractFromZip(z, pathPrefix = '') {
-        const entries = Object.entries(z.files);
-        log(`Scanning ${entries.length} entries in ZIP...`);
-        
-        for (const [path, file] of entries) {
-            if (file.dir) continue;
-            const fullPath = pathPrefix + path;
-            
-            if (path.toLowerCase().endsWith('.png')) {
-                const filename = path.split('/').pop();
-                const pathParts = fullPath.split('/').filter(p => p.length > 0);
-                
-                log(`Processing: ${fullPath}`);
-                
-                // Find the participant folder with format "Name_Number_..." 
-                let folderNum = null;
-                let partPath = null;
-                
-                // Look through path parts for folder matching "ParticipantName_Number_..."
-                // Example: "Jiaxin L_11_Drawings 2"
-                for (let i = 0; i < pathParts.length - 1; i++) {
-                    const part = pathParts[i];
-                    
-                    // Pattern: "Name_Number" or "Name_Number_AnythingElse"
-                    // Captures: participant name, folder number
-                    const match = part.match(/^(.+?)_(\d+)(?:_.*)?$/);
-                    if (match) {
-                        partPath = match[1].trim();
-                        folderNum = parseInt(match[2]);
-                        log(`  Matched folder pattern: "${part}" → participant="${partPath}", folderNum=${folderNum}`);
-                        break;
-                    }
-                    
-                    // Also check for purely numeric folders (backup)
-                    if (/^\d+$/.test(part)) {
-                        folderNum = parseInt(part);
-                        // Look for participant in previous folder
-                        if (i > 0) {
-                            partPath = pathParts[i - 1];
-                        }
-                        log(`  Found numeric folder: ${part} → folderNum=${folderNum}, participant=${partPath}`);
-                        break;
-                    }
-                }
-                
-                // If still no participant, get from filename
-                const participant = partPath || parseParticipant(filename);
-                
-                fileInfos.push({
-                    filename,
-                    file,
-                    folderNum,
-                    participant,
-                    fullPath
-                });
-                
-                log(`  Result: participant="${participant}", folderNum=${folderNum}, freq=${parseFreq(filename)}Hz`);
-                
-            } else if (path.toLowerCase().endsWith('.zip')) {
-                // Handle nested ZIP files
-                try {
-                    log(`Found nested ZIP: ${path}`);
-                    const blob = await file.async('blob');
-                    const nested = await JSZip.loadAsync(blob);
-                    await extractFromZip(nested, fullPath.replace(/\.zip$/i, '/'));
-                } catch (e) {
-                    console.warn('Nested ZIP error:', path, e);
-                    log(`Warning: Could not process nested ZIP: ${path}`);
-                }
-            }
+    // Parse the incoming data
+    const data = JSON.parse(rawData);
+    
+    // Log parsed data stats
+    if (data.allData) {
+      const participants = Object.keys(data.allData);
+      Logger.log('Parsed data: ' + participants.length + ' participants');
+      let shapeCount = 0;
+      for (const p of participants) {
+        for (const t of Object.keys(data.allData[p])) {
+          for (const f of Object.keys(data.allData[p][t])) {
+            const d = data.allData[p][t][f];
+            if (d.red) shapeCount += d.red.length;
+            if (d.blue) shapeCount += d.blue.length;
+          }
         }
+      }
+      Logger.log('Total shapes in received data: ' + shapeCount);
     }
     
-    await extractFromZip(zip);
-    return fileInfos;
-}
-
-async function handleZip(file) {
-    document.getElementById('upload-log').innerHTML = '';
-    document.getElementById('upload-log').classList.remove('hidden');
-    log('=== Processing ZIP file ===');
-    log(`Filename: ${file.name}`);
-    status('Loading ZIP...');
+    // Open the spreadsheet
+    const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
     
-    try {
-        const infos = await processZip(file);
-        log(`=== Found ${infos.length} PNG files total ===`);
-        
-        if (!infos.length) {
-            status('No PNG files found in ZIP');
-            return;
-        }
-        
-        // Build participant -> folder numbers mapping
-        const partFolders = {};
-        for (const i of infos) {
-            const p = i.participant;
-            if (!partFolders[p]) partFolders[p] = new Set();
-            if (i.folderNum !== null) {
-                partFolders[p].add(i.folderNum);
-            }
-        }
-        
-        // Log what we found
-        log('=== Participants and their folder numbers ===');
-        for (const [p, folders] of Object.entries(partFolders)) {
-            log(`  ${p}: folders = [${Array.from(folders).sort((a,b)=>a-b).join(', ')}]`);
-        }
-        
-        // Map folder numbers to trial 1, 2, 3 (sorted lowest to highest)
-        trialMapping = {};
-        log('=== Trial Mapping ===');
-        for (const [p, folders] of Object.entries(partFolders)) {
-            const sorted = Array.from(folders).sort((a, b) => a - b);
-            trialMapping[p.toLowerCase()] = {};
-            sorted.forEach((fn, idx) => {
-                trialMapping[p.toLowerCase()][fn] = idx + 1;
-            });
-            if (sorted.length > 0) {
-                log(`  ${p}: folders [${sorted.join(', ')}] → Trial [${sorted.map((_, i) => i + 1).join(', ')}]`);
-            } else {
-                log(`  ${p}: No folder numbers found - defaulting to Trial 1`);
-            }
-        }
-        
-        // Load images and build data structure
-        const participants = new Map();
-        let loadedCount = 0;
-        let skippedCount = 0;
-        
-        log('=== Loading Images ===');
-        for (const info of infos) {
-            const hz = parseFreq(info.filename);
-            const freq = FREQUENCIES.find(f => f.hz === hz);
-            
-            // Only process frequencies 62.5 to 2000 Hz
-            if (!freq) {
-                skippedCount++;
-                continue;
-            }
-            
-            const p = info.participant;
-            
-            // Get trial number from mapping
-            let trialNum = 1;
-            if (info.folderNum !== null && trialMapping[p.toLowerCase()] && trialMapping[p.toLowerCase()][info.folderNum]) {
-                trialNum = trialMapping[p.toLowerCase()][info.folderNum];
-            }
-            const t = `Trial ${trialNum}`;
-            
-            // Load image
-            const blob = await info.file.async('blob');
-            const img = await loadImg(URL.createObjectURL(blob));
-            
-            const ik = `${p}|${t}|${fKey(freq)}`;
-            images[ik] = img;
-            
-            // Build tab structure
-            if (!participants.has(p)) participants.set(p, new Map());
-            if (!participants.get(p).has(t)) participants.get(p).set(t, new Set());
-            participants.get(p).get(t).add(freq.hz);
-            
-            ensureData(p, t, fKey(freq));
-            loadedCount++;
-        }
-        
-        if (!participants.size) {
-            status('No valid images found (need 62.5-2000 Hz frequencies)');
-            log(`Skipped ${skippedCount} files (outside 62.5-2000 Hz range)`);
-            return;
-        }
-        
-        // Log final structure
-        log('=== Final Tab Structure ===');
-        for (const [p, trials] of participants) {
-            const trialList = Array.from(trials.keys()).sort();
-            log(`  ${p}: ${trialList.length} trials - [${trialList.join(', ')}]`);
-            for (const [t, freqs] of trials) {
-                log(`    ${t}: ${freqs.size} frequencies - [${Array.from(freqs).sort((a,b)=>a-b).join(', ')}]`);
-            }
-        }
-        
-        log(`=== Summary: ${loadedCount} loaded, ${skippedCount} skipped ===`);
-        
-        buildTabs(participants);
-        status(`Loaded ${loadedCount} images from ${participants.size} participants`);
-        
-    } catch (e) {
-        console.error(e);
-        status('Error: ' + e.message);
-        log('ERROR: ' + e.message);
-        log(e.stack);
+    // Ensure all sheets exist
+    ensureSheetExists(spreadsheet, TRACERS_SHEET, getTracerHeaders());
+    ensureSheetExists(spreadsheet, COORDS_SHEET, getCoordHeaders());
+    ensureSheetExists(spreadsheet, SUMMARY_SHEET, getSummaryHeaders());
+    ensureSheetExists(spreadsheet, LOG_SHEET, getLogHeaders());
+    
+    // Handle different actions
+    switch(data.action) {
+      case 'saveProgress':
+        return saveTracerProgress(spreadsheet, data);
+      case 'export':
+        data.tracerName = data.tracerName || 'default';
+        return saveTracerProgress(spreadsheet, data);
+      default:
+        return jsonResponse({ error: 'Unknown action. Use: saveProgress' });
     }
-}
-
-function loadImg(src) {
-    return new Promise((res, rej) => {
-        const img = new Image();
-        img.onload = () => res(img);
-        img.onerror = rej;
-        img.src = src;
+    
+  } catch (error) {
+    Logger.log('doPost Error: ' + error.toString());
+    return jsonResponse({
+      result: 'error',
+      error: error.toString()
     });
-}
-
-async function handleSingle(file) {
-    try {
-        const img = await loadImg(URL.createObjectURL(file));
-        const p = parseParticipant(file.name) || 'Participant';
-        const t = 'Trial 1';
-        const hz = parseFreq(file.name);
-        const freq = hz ? FREQUENCIES.find(f => f.hz === hz) : FREQUENCIES[0];
-        
-        const ik = `${p}|${t}|${fKey(freq || FREQUENCIES[0])}`;
-        images[ik] = img;
-        ensureData(p, t, fKey(freq || FREQUENCIES[0]));
-        
-        const parts = new Map([[p, new Map([[t, new Set([freq?.hz || 62.5])]])]]);
-        buildTabs(parts);
-        status(`Loaded: ${file.name}`);
-    } catch (e) {
-        status('Error: ' + e.message);
-    }
-}
-
-function handleJson(file) {
-    const r = new FileReader();
-    r.onload = e => {
-        try {
-            const d = JSON.parse(e.target.result);
-            if (d.allData) allData = d.allData;
-            if (d.settings) {
-                if (d.settings.resampleRate) {
-                    resampleRate = d.settings.resampleRate;
-                    document.getElementById('resample-slider').value = resampleRate;
-                    document.getElementById('resample-val').textContent = resampleRate;
-                }
-                if (d.settings.imageOpacity !== undefined) {
-                    IMAGE_OPACITY = d.settings.imageOpacity / 100;
-                    document.getElementById('img-opacity-slider').value = d.settings.imageOpacity;
-                    document.getElementById('img-opacity-val').textContent = d.settings.imageOpacity + '%';
-                }
-                if (d.settings.shapeOpacity !== undefined) {
-                    SHAPE_OPACITY = d.settings.shapeOpacity / 100;
-                    document.getElementById('shape-opacity-slider').value = d.settings.shapeOpacity;
-                    document.getElementById('shape-opacity-val').textContent = d.settings.shapeOpacity + '%';
-                }
-                if (d.settings.brushSize) {
-                    brushSize = d.settings.brushSize;
-                    document.getElementById('brush-slider').value = brushSize;
-                    document.getElementById('brush-val').textContent = brushSize;
-                }
-            }
-            
-            const parts = new Map();
-            for (const p of Object.keys(allData)) {
-                parts.set(p, new Map());
-                for (const t of Object.keys(allData[p])) {
-                    parts.get(p).set(t, new Set());
-                    for (const fk of Object.keys(allData[p][t])) {
-                        const hz = parseFloat(fk);
-                        if (!isNaN(hz)) parts.get(p).get(t).add(hz);
-                    }
-                }
-            }
-            
-            if (parts.size) {
-                buildTabs(parts);
-                updateGallery();
-                status('JSON imported');
-            }
-        } catch (e) {
-            status('Error: ' + e.message);
-        }
-    };
-    r.readAsText(file);
+  }
 }
 
 // ============================================
-// TAB BUILDING
+// MAIN GET HANDLER
 // ============================================
-function buildTabs(participants) {
-    const pSec = document.getElementById('participant-section');
-    const tSec = document.getElementById('trial-section');
-    const fSec = document.getElementById('frequency-section');
-    const pTabs = document.getElementById('participant-tabs');
-    const tTabs = document.getElementById('trial-tabs');
-    const fTabs = document.getElementById('frequency-tabs');
-    
-    pTabs.innerHTML = '';
-    tTabs.innerHTML = '';
-    fTabs.innerHTML = '';
-    
-    pSec.classList.remove('hidden');
-    tSec.classList.remove('hidden');
-    fSec.classList.remove('hidden');
-    
-    const sortedP = Array.from(participants.keys()).sort();
-    let first = true;
-    
-    for (const p of sortedP) {
-        const btn = document.createElement('button');
-        btn.className = `tab-btn px-4 py-2 rounded-xl font-bold text-sm bg-gray-100 shadow${first ? ' active' : ''}`;
-        btn.textContent = p;
-        btn.onclick = () => selectParticipant(p, participants, btn);
-        pTabs.appendChild(btn);
-        
-        if (first) {
-            curParticipant = p;
-            buildTrialTabs(p, participants.get(p));
-            first = false;
-        }
-    }
-}
 
-function buildTrialTabs(p, trials) {
-    const tTabs = document.getElementById('trial-tabs');
-    tTabs.innerHTML = '';
+function doGet(e) {
+  try {
+    const params = e.parameter;
     
-    const sorted = Array.from(trials.keys()).sort((a, b) => {
-        const na = parseInt(a.replace(/\D/g, '')) || 0;
-        const nb = parseInt(b.replace(/\D/g, '')) || 0;
-        return na - nb;
+    // If no parameters, return API documentation
+    if (!params || !params.action) {
+      return jsonResponse({
+        api: 'Contour Tracer Cloud Collaboration API',
+        version: '4.0',
+        status: SHEET_ID ? 'configured' : 'NOT CONFIGURED - Set SHEET_ID',
+        usage: {
+          loadProgress: '?action=loadProgress&tracerName=YourName',
+          listTracers: '?action=listTracers',
+          mergeAll: '?action=mergeAll',
+          getSummary: '?action=getSummary'
+        }
+      });
+    }
+    
+    // Open the spreadsheet
+    const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+    
+    // Ensure sheets exist
+    ensureSheetExists(spreadsheet, TRACERS_SHEET, getTracerHeaders());
+    ensureSheetExists(spreadsheet, COORDS_SHEET, getCoordHeaders());
+    ensureSheetExists(spreadsheet, SUMMARY_SHEET, getSummaryHeaders());
+    ensureSheetExists(spreadsheet, LOG_SHEET, getLogHeaders());
+    
+    switch(params.action) {
+      case 'loadProgress':
+        return loadTracerProgress(spreadsheet, params.tracerName);
+      case 'loadAllFromCoordinates':
+        return loadAllFromCoordinates(spreadsheet, params.tracerName);
+      case 'loadAllCoordinates':
+        return loadAllCoordinatesData(spreadsheet);
+      case 'listTracers':
+        return listAllTracers(spreadsheet);
+      case 'mergeAll':
+        return mergeAllTracers(spreadsheet);
+      case 'getSummary':
+        return getSummary(spreadsheet);
+      default:
+        return jsonResponse({ error: 'Unknown action' });
+    }
+    
+  } catch (error) {
+    Logger.log('doGet Error: ' + error.toString());
+    return jsonResponse({
+      result: 'error',
+      error: error.toString()
     });
-    
-    let first = true;
-    for (const t of sorted) {
-        const btn = document.createElement('button');
-        btn.className = `trial-btn tab-btn px-4 py-2 rounded-xl font-bold text-sm bg-gray-100 shadow${first ? ' active' : ''}`;
-        btn.textContent = t;
-        btn.onclick = () => selectTrial(t, trials.get(t), btn);
-        tTabs.appendChild(btn);
-        
-        if (first) {
-            curTrial = t;
-            buildFreqTabs(trials.get(t));
-            first = false;
-        }
-    }
-}
-
-function buildFreqTabs(freqs) {
-    const fTabs = document.getElementById('frequency-tabs');
-    fTabs.innerHTML = '';
-    
-    let first = true;
-    for (const f of FREQUENCIES) {
-        const btn = document.createElement('button');
-        const hasData = freqs && freqs.has(f.hz);
-        btn.className = `freq-btn tab-btn px-4 py-2 rounded-xl font-bold text-sm shadow ${hasData ? 'bg-gray-100' : 'bg-gray-50 text-gray-400'}${first && hasData ? ' active' : ''}`;
-        btn.textContent = `${f.hz} Hz`;
-        btn.disabled = !hasData;
-        btn.onclick = () => selectFreq(f, btn);
-        fTabs.appendChild(btn);
-        
-        if (first && hasData) {
-            curFreq = f;
-            first = false;
-        }
-    }
-    
-    redraw();
-}
-
-function selectParticipant(p, participants, btn) {
-    curParticipant = p;
-    document.querySelectorAll('#participant-tabs .tab-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    buildTrialTabs(p, participants.get(p));
-    undoStack = []; redoStack = [];
-    document.getElementById('undo-btn').disabled = true;
-    document.getElementById('redo-btn').disabled = true;
-}
-
-function selectTrial(t, freqs, btn) {
-    curTrial = t;
-    document.querySelectorAll('#trial-tabs .tab-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    buildFreqTabs(freqs);
-    undoStack = []; redoStack = [];
-    document.getElementById('undo-btn').disabled = true;
-    document.getElementById('redo-btn').disabled = true;
-}
-
-function selectFreq(f, btn) {
-    curFreq = f;
-    document.querySelectorAll('#frequency-tabs .tab-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    undoStack = []; redoStack = [];
-    document.getElementById('undo-btn').disabled = true;
-    document.getElementById('redo-btn').disabled = true;
-    redraw();
-    updateTable();
+  }
 }
 
 // ============================================
-// AVERAGE SHAPES
-// ============================================
-function calcAvg(shapes) {
-    if (!shapes?.length) return null;
-    if (shapes.length === 1) return [...shapes[0]];
-    const maxLen = Math.max(...shapes.map(s => s.length));
-    const norm = shapes.map(s => resample(s, maxLen));
-    const avg = [];
-    for (let i = 0; i < maxLen; i++) {
-        let sx = 0, sy = 0, c = 0;
-        for (const s of norm) {
-            if (i < s.length) { sx += s[i].x; sy += s[i].y; c++; }
-        }
-        if (c) avg.push({ x: sx / c, y: sy / c });
-    }
-    return avg;
-}
-
-function clearAvgCur() {
-    // Clear all averages
-    for (const p of Object.keys(allData)) {
-        for (const t of Object.keys(allData[p])) {
-            for (const fk of Object.keys(allData[p][t])) {
-                const d = allData[p][t][fk];
-                d.redAvg = null;
-                d.blueAvg = null;
-            }
-        }
-    }
-    frequencyAverages = {};
-    redraw();
-    updateGallery();
-    document.getElementById('freq-avg-status').textContent = 'All averages cleared';
-    status('Cleared all averages');
-}
-
-function openModal() {
-    document.getElementById('modal').classList.add('active');
-    const mf = document.getElementById('mod-f');
-    mf.innerHTML = '';
-    
-    // Count shapes per frequency to show in the modal
-    const freqCounts = {};
-    for (const freq of FREQUENCIES) {
-        freqCounts[freq.hz] = { red: 0, blue: 0 };
-    }
-    
-    for (const p of Object.keys(allData)) {
-        for (const t of Object.keys(allData[p])) {
-            for (const fk of Object.keys(allData[p][t])) {
-                const d = allData[p][t][fk];
-                const hz = parseFloat(fk);
-                if (freqCounts[hz]) {
-                    freqCounts[hz].red += d.red ? d.red.length : 0;
-                    freqCounts[hz].blue += d.blue ? d.blue.length : 0;
-                }
-            }
-        }
-    }
-    
-    FREQUENCIES.forEach(f => {
-        const counts = freqCounts[f.hz];
-        const hasData = counts.red > 0 || counts.blue > 0;
-        const countStr = hasData ? ` (R:${counts.red}, B:${counts.blue})` : ' (no data)';
-        mf.innerHTML += `<label class="checkbox-item ${!hasData ? 'opacity-50' : ''}">
-            <input type="checkbox" value="${f.hz}" ${hasData ? 'checked' : ''}>
-            <span>${f.hz} Hz${countStr}</span>
-        </label>`;
-    });
-}
-
-function doBulk() {
-    const selF = [...document.querySelectorAll('#mod-f input:checked')].map(c => parseFloat(c.value));
-    
-    if (selF.length === 0) {
-        alert('Please select at least one frequency');
-        return;
-    }
-    
-    document.getElementById('modal').classList.remove('active');
-    
-    // Generate frequency averages for selected frequencies only
-    const statusEl = document.getElementById('freq-avg-status');
-    statusEl.textContent = 'Generating composites for selected frequencies...';
-    
-    let totalRed = 0, totalBlue = 0;
-    
-    // Only process selected frequencies
-    for (const hz of selF) {
-        const freq = FREQUENCIES.find(f => f.hz === hz);
-        if (!freq) continue;
-        
-        frequencyAverages[hz] = {
-            redShapes: [],
-            blueShapes: [],
-            redAvg: null,
-            blueAvg: null,
-            redCentroid: null,
-            blueCentroid: null,
-            redArea: 0,
-            blueArea: 0
-        };
-        
-        // Collect shapes for this frequency from all participants/trials
-        for (const p of Object.keys(allData)) {
-            for (const t of Object.keys(allData[p])) {
-                for (const dataFk of Object.keys(allData[p][t])) {
-                    const dataHz = parseFloat(dataFk);
-                    if (Math.abs(dataHz - hz) < 0.1) {
-                        const d = allData[p][t][dataFk];
-                        if (d.red) {
-                            d.red.forEach(shape => {
-                                if (shape && shape.length > 2) {
-                                    frequencyAverages[hz].redShapes.push(shape);
-                                    totalRed++;
-                                }
-                            });
-                        }
-                        if (d.blue) {
-                            d.blue.forEach(shape => {
-                                if (shape && shape.length > 2) {
-                                    frequencyAverages[hz].blueShapes.push(shape);
-                                    totalBlue++;
-                                }
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Calculate simple averages
-        if (frequencyAverages[hz].redShapes.length > 0) {
-            const avgShape = simpleAverageShapes(frequencyAverages[hz].redShapes, resampleRate);
-            if (avgShape) {
-                frequencyAverages[hz].redAvg = avgShape;
-                frequencyAverages[hz].redCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hz].redArea = calculateArea(avgShape);
-            }
-        }
-        if (frequencyAverages[hz].blueShapes.length > 0) {
-            const avgShape = simpleAverageShapes(frequencyAverages[hz].blueShapes, resampleRate);
-            if (avgShape) {
-                frequencyAverages[hz].blueAvg = avgShape;
-                frequencyAverages[hz].blueCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hz].blueArea = calculateArea(avgShape);
-            }
-        }
-    }
-    
-    statusEl.textContent = `Generated composites for ${selF.length} frequencies (${totalRed} red, ${totalBlue} blue shapes)`;
-    status(`Generated ${selF.length} frequency composites`);
-}
-
-// ============================================
-// CROSS-PARTICIPANT FREQUENCY AVERAGING
+// SHEET CREATION HELPERS
 // ============================================
 
-// Store frequency averages: { hz: { redAvg: [...], blueAvg: [...], redShapes: [...], blueShapes: [...] } }
-let frequencyAverages = {};
+function getTracerHeaders() {
+  return ['TracerName', 'SavedAt', 'Version', 'ParticipantCount', 'TrialCount', 'TotalShapes', 'Settings_JSON', 'AllData_JSON'];
+}
 
-/**
- * Calculate centroid of a shape (for display purposes)
- */
-function calculateCentroid(shape) {
-    if (!shape || shape.length === 0) return { x: 0, y: 0 };
-    let sumX = 0, sumY = 0;
-    for (const pt of shape) {
-        sumX += pt.x;
-        sumY += pt.y;
-    }
-    return { x: sumX / shape.length, y: sumY / shape.length };
+function getCoordHeaders() {
+  return ['TracerName', 'Participant', 'Trial', 'Frequency_Hz', 'Color', 'ShapeType', 'ShapeNumber', 'PointIndex', 'X', 'Y'];
+}
+
+function getSummaryHeaders() {
+  return ['Participant', 'Trial', 'Frequency', 'RedShapes', 'BlueShapes', 'RedAvg', 'BlueAvg', 'TotalPoints', 'LastUpdatedBy', 'LastUpdatedAt'];
+}
+
+function getLogHeaders() {
+  return ['Timestamp', 'TracerName', 'Action', 'Details'];
 }
 
 /**
- * Calculate area of a shape using shoelace formula
+ * Ensure a sheet exists with proper headers
  */
-function calculateArea(shape) {
-    if (!shape || shape.length < 3) return 0;
-    let area = 0;
-    for (let i = 0; i < shape.length; i++) {
-        const j = (i + 1) % shape.length;
-        area += shape[i].x * shape[j].y;
-        area -= shape[j].x * shape[i].y;
-    }
-    return Math.abs(area) / 2;
+function ensureSheetExists(spreadsheet, sheetName, headers) {
+  let sheet = spreadsheet.getSheetByName(sheetName);
+  
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(sheetName);
+    
+    // Set headers
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    
+    // Format headers
+    const headerRange = sheet.getRange(1, 1, 1, headers.length);
+    headerRange.setFontWeight('bold');
+    headerRange.setHorizontalAlignment('center');
+    
+    // Set background color based on sheet type
+    let bgColor = '#4285f4'; // Default blue
+    if (sheetName === COORDS_SHEET) bgColor = '#34a853'; // Green
+    if (sheetName === SUMMARY_SHEET) bgColor = '#fbbc04'; // Yellow
+    if (sheetName === LOG_SHEET) bgColor = '#ea4335'; // Red
+    
+    headerRange.setBackground(bgColor);
+    headerRange.setFontColor('#ffffff');
+    
+    // Freeze header row
+    sheet.setFrozenRows(1);
+    
+    Logger.log('Created sheet: ' + sheetName);
+  }
+  
+  return sheet;
 }
+
+// ============================================
+// SAVE FUNCTIONS
+// ============================================
 
 /**
- * Simple average of shapes - directly averages corresponding points
- * This preserves actual spatial positions better for geometric shapes
+ * Save a tracer's progress
+ * Uses LockService to prevent concurrent modification issues
  */
-function simpleAverageShapes(shapes, targetLength = 1000) {
-    if (!shapes || shapes.length === 0) return null;
+function saveTracerProgress(spreadsheet, data) {
+  const lock = LockService.getScriptLock();
+  
+  try {
+    // Wait up to 30 seconds for the lock
+    lock.waitLock(30000);
     
-    // Filter out invalid shapes
-    const validShapes = shapes.filter(s => s && s.length >= 3);
-    if (validShapes.length === 0) return null;
+    const sheet = spreadsheet.getSheetByName(TRACERS_SHEET);
     
-    if (validShapes.length === 1) {
-        return validShapes[0];
-    }
+    const tracerName = data.tracerName || 'anonymous';
+    const savedAt = new Date().toISOString();
+    const version = data.version || '4.1';
+    const allData = data.allData || {};
+    const settings = data.settings || {};
     
-    // Resample all shapes to the same length
-    const resampledShapes = validShapes.map(shape => {
-        if (shape.length === targetLength) return shape;
-        
-        const resampled = [];
-        for (let i = 0; i < targetLength; i++) {
-            const t = i / targetLength * shape.length;
-            const idx = Math.floor(t);
-            const frac = t - idx;
-            const p1 = shape[idx % shape.length];
-            const p2 = shape[(idx + 1) % shape.length];
-            resampled.push({
-                x: p1.x + frac * (p2.x - p1.x),
-                y: p1.y + frac * (p2.y - p1.y)
-            });
-        }
-        return resampled;
-    });
-    
-    // Simple average: average corresponding points directly
-    const avgShape = [];
-    for (let i = 0; i < targetLength; i++) {
-        let sumX = 0, sumY = 0;
-        for (const shape of resampledShapes) {
-            sumX += shape[i].x;
-            sumY += shape[i].y;
-        }
-        avgShape.push({
-            x: sumX / resampledShapes.length,
-            y: sumY / resampledShapes.length
-        });
-    }
-    
-    console.log(`[Simple Average] ${validShapes.length} shapes averaged`);
-    return avgShape;
-}
-
-/**
- * Generate average shapes across ALL participants for each frequency
- * Uses simple direct averaging of corresponding points
- */
-function generateFrequencyAverages() {
-    const statusEl = document.getElementById('freq-avg-status');
-    statusEl.textContent = 'Generating frequency averages...';
-    
-    frequencyAverages = {};
-    let totalRed = 0, totalBlue = 0;
-    
-    // Collect all shapes by frequency
-    for (const freq of FREQUENCIES) {
-        const fk = fKey(freq);
-        const hzKey = freq.hz;
-        
-        frequencyAverages[hzKey] = {
-            redShapes: [],
-            blueShapes: [],
-            redAvg: null,
-            blueAvg: null,
-            redCentroid: null,
-            blueCentroid: null,
-            redArea: 0,
-            blueArea: 0
-        };
-        
-        // Iterate through all participants and trials
-        for (const p of Object.keys(allData)) {
-            for (const t of Object.keys(allData[p])) {
-                // Find matching frequency key
-                for (const dataFk of Object.keys(allData[p][t])) {
-                    // Match by frequency value (ignore dB)
-                    const dataHz = parseFloat(dataFk);
-                    if (Math.abs(dataHz - freq.hz) < 0.1) {
-                        const d = allData[p][t][dataFk];
-                        if (d.red) {
-                            d.red.forEach(shape => {
-                                if (shape && shape.length > 2) {
-                                    frequencyAverages[hzKey].redShapes.push(shape);
-                                    totalRed++;
-                                }
-                            });
-                        }
-                        if (d.blue) {
-                            d.blue.forEach(shape => {
-                                if (shape && shape.length > 2) {
-                                    frequencyAverages[hzKey].blueShapes.push(shape);
-                                    totalBlue++;
-                                }
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Calculate simple averages
-        if (frequencyAverages[hzKey].redShapes.length > 0) {
-            const avgShape = simpleAverageShapes(frequencyAverages[hzKey].redShapes, resampleRate);
-            if (avgShape) {
-                frequencyAverages[hzKey].redAvg = avgShape;
-                frequencyAverages[hzKey].redCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hzKey].redArea = calculateArea(avgShape);
-            }
-        }
-        if (frequencyAverages[hzKey].blueShapes.length > 0) {
-            const avgShape = simpleAverageShapes(frequencyAverages[hzKey].blueShapes, resampleRate);
-            if (avgShape) {
-                frequencyAverages[hzKey].blueAvg = avgShape;
-                frequencyAverages[hzKey].blueCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hzKey].blueArea = calculateArea(avgShape);
-            }
-        }
-    }
-    
-    // Count frequencies with averages
-    let freqsWithData = 0;
-    for (const hz of Object.keys(frequencyAverages)) {
-        if (frequencyAverages[hz].redAvg || frequencyAverages[hz].blueAvg) {
-            freqsWithData++;
-        }
-    }
-    
-    statusEl.textContent = `Generated averages for ${freqsWithData} frequencies (${totalRed} red shapes, ${totalBlue} blue shapes)`;
-    status(`Frequency averages generated: ${freqsWithData} frequencies`);
-}
-
-/**
- * Export frequency averages as PNG images
- * Creates one image per frequency with:
- * - Individual traced shapes at configurable opacity (background)
- * - Average shapes at full opacity (foreground)
- * - Grid on top
- */
-function exportFrequencyPNGs() {
-    const statusEl = document.getElementById('freq-avg-status');
-    
-    // Check if averages have been generated
-    const hasData = Object.keys(frequencyAverages).some(hz => 
-        frequencyAverages[hz].redAvg || frequencyAverages[hz].blueAvg
-    );
-    
-    if (!hasData) {
-        statusEl.textContent = 'Please generate frequency averages first';
-        return;
-    }
-    
-    statusEl.textContent = 'Creating PNG images...';
-    
-    const promises = [];
-    
-    for (const freq of FREQUENCIES) {
-        const hzKey = freq.hz;
-        const data = frequencyAverages[hzKey];
-        
-        if (!data || (!data.redAvg && !data.blueAvg)) continue;
-        
-        // Create canvas for this frequency
-        const tc = document.createElement('canvas');
-        tc.width = tc.height = CANVAS_SIZE;
-        const cx = tc.getContext('2d');
-        
-        // White background
-        cx.fillStyle = 'white';
-        cx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-        
-        // Layer 1: Reference circle
-        cx.save();
-        cx.strokeStyle = '#e5e7eb';
-        cx.lineWidth = 2;
-        cx.beginPath();
-        cx.arc(CENTER, CENTER, BACKGROUND_CIRCLE_RADIUS * SCALE_FACTOR, 0, Math.PI * 2);
-        cx.stroke();
-        cx.restore();
-        
-        // Layer 2: Individual traced shapes at SHAPE_OPACITY
-        if (data.redShapes) {
-            data.redShapes.forEach(shape => {
-                if (shape && shape.length >= 2) {
-                    cx.save();
-                    cx.globalAlpha = SHAPE_OPACITY;
-                    cx.strokeStyle = COLORS.red;
-                    cx.lineWidth = brushSize;
-                    cx.lineCap = 'round';
-                    cx.lineJoin = 'round';
-                    cx.beginPath();
-                    const st = unitToCanvas(shape[0].x, shape[0].y);
-                    cx.moveTo(st.x, st.y);
-                    for (let i = 1; i < shape.length; i++) {
-                        const pt = unitToCanvas(shape[i].x, shape[i].y);
-                        cx.lineTo(pt.x, pt.y);
-                    }
-                    cx.stroke();
-                    cx.restore();
-                }
-            });
-        }
-        
-        if (data.blueShapes) {
-            data.blueShapes.forEach(shape => {
-                if (shape && shape.length >= 2) {
-                    cx.save();
-                    cx.globalAlpha = SHAPE_OPACITY;
-                    cx.strokeStyle = COLORS.blue;
-                    cx.lineWidth = brushSize;
-                    cx.lineCap = 'round';
-                    cx.lineJoin = 'round';
-                    cx.beginPath();
-                    const st = unitToCanvas(shape[0].x, shape[0].y);
-                    cx.moveTo(st.x, st.y);
-                    for (let i = 1; i < shape.length; i++) {
-                        const pt = unitToCanvas(shape[i].x, shape[i].y);
-                        cx.lineTo(pt.x, pt.y);
-                    }
-                    cx.stroke();
-                    cx.restore();
-                }
-            });
-        }
-        
-        // Layer 3: Average shapes at full opacity with centroid markers
-        if (data.redAvg && data.redAvg.length >= 2) {
-            // Draw average contour
-            cx.strokeStyle = '#991b1b'; // Dark red
-            cx.lineWidth = 4;
-            cx.lineCap = 'round';
-            cx.lineJoin = 'round';
-            cx.beginPath();
-            const st = unitToCanvas(data.redAvg[0].x, data.redAvg[0].y);
-            cx.moveTo(st.x, st.y);
-            for (let i = 1; i < data.redAvg.length; i++) {
-                const pt = unitToCanvas(data.redAvg[i].x, data.redAvg[i].y);
-                cx.lineTo(pt.x, pt.y);
-            }
-            cx.closePath();
-            cx.stroke();
-            
-            // Draw centroid marker
-            if (data.redCentroid) {
-                const cp = unitToCanvas(data.redCentroid.x, data.redCentroid.y);
-                cx.fillStyle = '#991b1b';
-                cx.beginPath();
-                cx.arc(cp.x, cp.y, 6, 0, Math.PI * 2);
-                cx.fill();
-                cx.strokeStyle = 'white';
-                cx.lineWidth = 2;
-                cx.stroke();
-            }
-        }
-        
-        if (data.blueAvg && data.blueAvg.length >= 2) {
-            // Draw average contour
-            cx.strokeStyle = '#1e3a8a'; // Dark blue
-            cx.lineWidth = 4;
-            cx.lineCap = 'round';
-            cx.lineJoin = 'round';
-            cx.beginPath();
-            const st = unitToCanvas(data.blueAvg[0].x, data.blueAvg[0].y);
-            cx.moveTo(st.x, st.y);
-            for (let i = 1; i < data.blueAvg.length; i++) {
-                const pt = unitToCanvas(data.blueAvg[i].x, data.blueAvg[i].y);
-                cx.lineTo(pt.x, pt.y);
-            }
-            cx.closePath();
-            cx.stroke();
-            
-            // Draw centroid marker
-            if (data.blueCentroid) {
-                const cp = unitToCanvas(data.blueCentroid.x, data.blueCentroid.y);
-                cx.fillStyle = '#1e3a8a';
-                cx.beginPath();
-                cx.arc(cp.x, cp.y, 6, 0, Math.PI * 2);
-                cx.fill();
-                cx.strokeStyle = 'white';
-                cx.lineWidth = 2;
-                cx.stroke();
-            }
-        }
-        
-        // Layer 4: Grid on top
-        cx.strokeStyle = '#e5e7eb';
-        cx.lineWidth = 1;
-        for (let i = -UNIT_RANGE + 1; i < UNIT_RANGE; i++) {
-            if (i === 0) continue;
-            const c = unitToCanvas(i, i);
-            cx.beginPath(); cx.moveTo(0, c.y); cx.lineTo(CANVAS_SIZE, c.y); cx.stroke();
-            cx.beginPath(); cx.moveTo(c.x, 0); cx.lineTo(c.x, CANVAS_SIZE); cx.stroke();
-        }
-        cx.strokeStyle = '#6b7280';
-        cx.lineWidth = 2;
-        cx.beginPath(); cx.moveTo(0, CENTER); cx.lineTo(CANVAS_SIZE, CENTER); cx.stroke();
-        cx.beginPath(); cx.moveTo(CENTER, 0); cx.lineTo(CENTER, CANVAS_SIZE); cx.stroke();
-        
-        // Title
-        cx.fillStyle = '#1f2937';
-        cx.font = 'bold 28px sans-serif';
-        cx.textAlign = 'center';
-        cx.fillText(`${hzKey} Hz`, CENTER, 30);
-        
-        // Detailed stats
-        cx.font = '14px sans-serif';
-        cx.textAlign = 'left';
-        const redCount = data.redShapes ? data.redShapes.length : 0;
-        const blueCount = data.blueShapes ? data.blueShapes.length : 0;
-        
-        // Red stats
-        cx.fillStyle = '#991b1b';
-        const redCentroidStr = data.redCentroid ? `(${data.redCentroid.x.toFixed(2)}, ${data.redCentroid.y.toFixed(2)})` : '-';
-        const redAreaStr = data.redArea ? data.redArea.toFixed(2) : '-';
-        cx.fillText(`Red: N=${redCount}, Centroid=${redCentroidStr}, Area=${redAreaStr}`, 20, 55);
-        
-        // Blue stats
-        cx.fillStyle = '#1e3a8a';
-        const blueCentroidStr = data.blueCentroid ? `(${data.blueCentroid.x.toFixed(2)}, ${data.blueCentroid.y.toFixed(2)})` : '-';
-        const blueAreaStr = data.blueArea ? data.blueArea.toFixed(2) : '-';
-        cx.fillText(`Blue: N=${blueCount}, Centroid=${blueCentroidStr}, Area=${blueAreaStr}`, 20, 75);
-        
-        // Shift calculation (if both exist)
-        if (data.redCentroid && data.blueCentroid) {
-            const shift = Math.sqrt(
-                Math.pow(data.blueCentroid.x - data.redCentroid.x, 2) + 
-                Math.pow(data.blueCentroid.y - data.redCentroid.y, 2)
-            );
-            cx.fillStyle = '#6b7280';
-            cx.fillText(`Centroid Shift: ${shift.toFixed(3)} units`, 20, 95);
-        }
-        
-        // Save as PNG
-        tc.toBlob(blob => {
-            saveAs(blob, `frequency_avg_${hzKey}Hz.png`);
-        });
-    }
-    
-    statusEl.textContent = 'PNG images exported!';
-    status('Frequency PNG images exported');
-}
-
-function updateGallery() {
-    const g = document.getElementById('gallery');
-    g.innerHTML = '';
-    let has = false;
-    for (const p of Object.keys(allData).sort()) {
-        for (const t of Object.keys(allData[p]).sort()) {
-            for (const fk of Object.keys(allData[p][t])) {
-                const d = allData[p][t][fk];
-                if (d.redAvg || d.blueAvg) {
-                    has = true;
-                    const card = document.createElement('div');
-                    card.className = 'bg-gray-50 rounded-xl p-3 border';
-                    const cv = document.createElement('canvas');
-                    cv.width = 200; cv.height = 200;
-                    cv.className = 'w-full rounded-lg border bg-white mb-2';
-                    const cx = cv.getContext('2d');
-                    cx.fillStyle = 'white'; cx.fillRect(0, 0, 200, 200);
-                    const sc = 200 / CANVAS_SIZE;
-                    // Traced shapes at SHAPE_OPACITY (background)
-                    d.red.forEach(s => drawPreview(cx, s, COLORS.red, sc, SHAPE_OPACITY));
-                    d.blue.forEach(s => drawPreview(cx, s, COLORS.blue, sc, SHAPE_OPACITY));
-                    // Average shapes with darker colors at full opacity (foreground)
-                    if (d.redAvg) drawPreview(cx, d.redAvg, '#991b1b', sc, 1, 3);
-                    if (d.blueAvg) drawPreview(cx, d.blueAvg, '#1e3a8a', sc, 1, 3);
-                    // Grid on top
-                    drawMiniGrid(cx, 200);
-                    card.appendChild(cv);
-                    card.innerHTML += `<p class="text-xs font-semibold">${p} - ${t}</p><p class="text-xs text-gray-500">${fk}</p>`;
-                    g.appendChild(card);
-                }
-            }
-        }
-    }
-    if (!has) g.innerHTML = '<div class="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center text-gray-400">No averages yet</div>';
-}
-
-function drawPreview(cx, s, clr, sc, op, lw = 2) {
-    if (!s || s.length < 2) return;
-    cx.save(); cx.globalAlpha = op; cx.strokeStyle = clr; cx.lineWidth = lw;
-    cx.lineCap = 'round'; cx.lineJoin = 'round'; cx.beginPath();
-    const st = unitToCanvas(s[0].x, s[0].y);
-    cx.moveTo(st.x * sc, st.y * sc);
-    for (let i = 1; i < s.length; i++) {
-        const p = unitToCanvas(s[i].x, s[i].y);
-        cx.lineTo(p.x * sc, p.y * sc);
-    }
-    cx.stroke(); cx.restore();
-}
-
-function drawMiniGrid(cx, sz) {
-    const c = sz / 2;
-    cx.strokeStyle = '#e5e7eb'; cx.lineWidth = 0.5;
-    for (let i = 0; i <= sz; i += sz / 20) {
-        cx.beginPath(); cx.moveTo(i, 0); cx.lineTo(i, sz); cx.stroke();
-        cx.beginPath(); cx.moveTo(0, i); cx.lineTo(sz, i); cx.stroke();
-    }
-    cx.strokeStyle = '#6b7280'; cx.lineWidth = 1;
-    cx.beginPath(); cx.moveTo(0, c); cx.lineTo(sz, c); cx.stroke();
-    cx.beginPath(); cx.moveTo(c, 0); cx.lineTo(c, sz); cx.stroke();
-}
-
-// ============================================
-// DATA TABLE
-// ============================================
-function updateTable() {
-    const tb = document.getElementById('data-body');
-    tb.innerHTML = '';
-    let has = false;
-    for (const p of Object.keys(allData).sort()) {
-        for (const t of Object.keys(allData[p]).sort()) {
-            for (const fk of Object.keys(allData[p][t])) {
-                const d = allData[p][t][fk];
-                d.red.forEach((s, i) => {
-                    has = true;
-                    const sm = s.slice(0, 2).map(pt => `(${pt.x.toFixed(1)},${pt.y.toFixed(1)})`).join(' ');
-                    tb.innerHTML += `<tr><td>${p}</td><td>${t}</td><td>${fk}</td><td class="text-red-500">●</td><td>${i + 1}</td><td>${s.length}</td><td>${sm}...</td></tr>`;
-                });
-                d.blue.forEach((s, i) => {
-                    has = true;
-                    const sm = s.slice(0, 2).map(pt => `(${pt.x.toFixed(1)},${pt.y.toFixed(1)})`).join(' ');
-                    tb.innerHTML += `<tr><td>${p}</td><td>${t}</td><td>${fk}</td><td class="text-blue-500">●</td><td>${i + 1}</td><td>${s.length}</td><td>${sm}...</td></tr>`;
-                });
-            }
-        }
-    }
-    if (!has) tb.innerHTML = '<tr><td colspan="7" class="text-center text-gray-400 py-8">No data</td></tr>';
-}
-
-// ============================================
-// EXPORTS
-// ============================================
-function expCSV() {
-    let csv = 'Participant,Trial,Frequency,Color,Shape,Point,X,Y,IsAvg\n';
-    for (const p of Object.keys(allData)) {
-        for (const t of Object.keys(allData[p])) {
-            for (const fk of Object.keys(allData[p][t])) {
-                const d = allData[p][t][fk];
-                d.red.forEach((s, si) => s.forEach((pt, pi) => { csv += `${p},${t},${fk},Red,${si + 1},${pi + 1},${pt.x.toFixed(6)},${pt.y.toFixed(6)},false\n`; }));
-                d.blue.forEach((s, si) => s.forEach((pt, pi) => { csv += `${p},${t},${fk},Blue,${si + 1},${pi + 1},${pt.x.toFixed(6)},${pt.y.toFixed(6)},false\n`; }));
-                if (d.redAvg) d.redAvg.forEach((pt, pi) => { csv += `${p},${t},${fk},Red,Avg,${pi + 1},${pt.x.toFixed(6)},${pt.y.toFixed(6)},true\n`; });
-                if (d.blueAvg) d.blueAvg.forEach((pt, pi) => { csv += `${p},${t},${fk},Blue,Avg,${pi + 1},${pt.x.toFixed(6)},${pt.y.toFixed(6)},true\n`; });
-            }
-        }
-    }
-    saveAs(new Blob([csv], { type: 'text/csv' }), `contour_${new Date().toISOString().slice(0, 10)}.csv`);
-    status('CSV exported');
-}
-
-function expJSON() {
-    const ex = { exportDate: new Date().toISOString(), version: '4.1', settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize }, allData };
-    saveAs(new Blob([JSON.stringify(ex, null, 2)], { type: 'application/json' }), `contour_${new Date().toISOString().slice(0, 10)}.json`);
-    status('JSON exported');
-}
-
-// ============================================
-// CLOUD COLLABORATION - GOOGLE SHEETS
-// ============================================
-let autoCloudSave = false;
-let cloudSaveTimeout = null;
-
-function getCloudUrl() {
-    return document.getElementById('cloud-url').value.trim();
-}
-
-function getTracerName() {
-    return document.getElementById('tracer-name').value.trim();
-}
-
-function setCloudStatus(msg, isError = false) {
-    const el = document.getElementById('cloud-status');
-    el.textContent = msg;
-    el.className = isError ? 'text-xs text-red-600 mt-3' : 'text-xs text-green-600 mt-3';
-}
-
-// Cloud progress popup functions
-let cloudProgressStartTime = null;
-
-function showCloudProgress(title, message) {
-    const modal = document.getElementById('cloud-progress-modal');
-    document.getElementById('cloud-progress-icon').textContent = '☁️';
-    document.getElementById('cloud-progress-title').textContent = title;
-    document.getElementById('cloud-progress-message').textContent = message;
-    document.getElementById('cloud-progress-bar').style.width = '0%';
-    document.getElementById('cloud-progress-details').textContent = '';
-    document.getElementById('cloud-progress-result').classList.add('hidden');
-    document.getElementById('cloud-progress-close').classList.add('hidden');
-    modal.classList.add('active');
-    cloudProgressStartTime = Date.now();
-}
-
-function updateCloudProgress(percent, details = '') {
-    document.getElementById('cloud-progress-bar').style.width = percent + '%';
-    
-    let timeInfo = '';
-    if (cloudProgressStartTime && percent > 0 && percent < 100) {
-        const elapsed = (Date.now() - cloudProgressStartTime) / 1000; // seconds
-        const estimatedTotal = elapsed / (percent / 100);
-        const remaining = estimatedTotal - elapsed;
-        
-        if (remaining > 0) {
-            if (remaining < 60) {
-                timeInfo = ` (~${Math.ceil(remaining)}s remaining)`;
-            } else {
-                const mins = Math.floor(remaining / 60);
-                const secs = Math.ceil(remaining % 60);
-                timeInfo = ` (~${mins}m ${secs}s remaining)`;
-            }
-        }
-    }
-    
-    if (details) {
-        document.getElementById('cloud-progress-details').textContent = details + timeInfo;
-    } else if (timeInfo) {
-        document.getElementById('cloud-progress-details').textContent = `${percent}% complete${timeInfo}`;
-    }
-}
-
-function showCloudSuccess(title, message, details = '') {
-    document.getElementById('cloud-progress-icon').textContent = '✅';
-    document.getElementById('cloud-progress-title').textContent = title;
-    document.getElementById('cloud-progress-message').textContent = message;
-    document.getElementById('cloud-progress-bar').style.width = '100%';
-    
-    // Show total time taken
-    let totalTime = '';
-    if (cloudProgressStartTime) {
-        const elapsed = (Date.now() - cloudProgressStartTime) / 1000;
-        if (elapsed < 60) {
-            totalTime = `\nCompleted in ${elapsed.toFixed(1)} seconds`;
-        } else {
-            const mins = Math.floor(elapsed / 60);
-            const secs = (elapsed % 60).toFixed(1);
-            totalTime = `\nCompleted in ${mins}m ${secs}s`;
-        }
-    }
-    
-    const resultDiv = document.getElementById('cloud-progress-result');
-    resultDiv.classList.remove('hidden', 'bg-red-100');
-    resultDiv.classList.add('bg-green-100');
-    document.getElementById('cloud-result-text').textContent = '✓ Success';
-    document.getElementById('cloud-result-text').className = 'font-semibold text-green-700';
-    document.getElementById('cloud-result-details').textContent = details + totalTime;
-    document.getElementById('cloud-result-details').className = 'text-sm mt-2 text-green-600 whitespace-pre-line';
-    document.getElementById('cloud-progress-details').textContent = '100% complete';
-    
-    document.getElementById('cloud-progress-close').classList.remove('hidden');
-}
-
-function showCloudError(title, message, details = '') {
-    document.getElementById('cloud-progress-icon').textContent = '❌';
-    document.getElementById('cloud-progress-title').textContent = title;
-    document.getElementById('cloud-progress-message').textContent = message;
-    
-    const resultDiv = document.getElementById('cloud-progress-result');
-    resultDiv.classList.remove('hidden', 'bg-green-100');
-    resultDiv.classList.add('bg-red-100');
-    document.getElementById('cloud-result-text').textContent = '✗ Error';
-    document.getElementById('cloud-result-text').className = 'font-semibold text-red-700';
-    document.getElementById('cloud-result-details').textContent = details;
-    document.getElementById('cloud-result-details').className = 'text-sm mt-2 text-red-600';
-    
-    document.getElementById('cloud-progress-close').classList.remove('hidden');
-}
-
-function hideCloudProgress() {
-    document.getElementById('cloud-progress-modal').classList.remove('active');
-    cloudProgressStartTime = null;
-}
-
-async function saveToCloud() {
-    const url = getCloudUrl();
-    const tracerName = getTracerName();
-    
-    if (!url) {
-        setCloudStatus('❌ Enter Apps Script URL', true);
-        return;
-    }
-    if (!tracerName) {
-        setCloudStatus('❌ Enter your tracer name', true);
-        return;
-    }
-    
-    // Show progress popup
-    showCloudProgress('Saving to Cloud...', 'Preparing your traced data');
-    
-    // Save settings locally
-    localStorage.setItem('cloudUrl', url);
-    localStorage.setItem('tracerName', tracerName);
-    
-    // Count data for display
-    const participants = Object.keys(allData);
+    // Count participants, trials, and shapes
+    let participantCount = 0;
+    let trialCount = 0;
     let totalShapes = 0;
-    let dataDebug = [];
+    
+    const participants = Object.keys(allData);
+    participantCount = participants.length;
+    
+    const trialSet = new Set();
     for (const p of participants) {
-        for (const t of Object.keys(allData[p])) {
-            for (const f of Object.keys(allData[p][t])) {
-                const d = allData[p][t][f];
-                const redCount = d.red ? d.red.length : 0;
-                const blueCount = d.blue ? d.blue.length : 0;
-                totalShapes += redCount + blueCount;
-                dataDebug.push(`${p}/${t}/${f}: R=${redCount}, B=${blueCount}`);
-            }
+      for (const t of Object.keys(allData[p])) {
+        trialSet.add(p + '|' + t);
+        for (const f of Object.keys(allData[p][t])) {
+          const d = allData[p][t][f];
+          if (d.red) totalShapes += d.red.length;
+          if (d.blue) totalShapes += d.blue.length;
+          if (d.redAvg) totalShapes++;
+          if (d.blueAvg) totalShapes++;
         }
+      }
+    }
+    trialCount = trialSet.size;
+    
+    // Find existing row for this tracer
+    const lastRow = sheet.getLastRow();
+    let rowIndex = -1;
+    
+    if (lastRow > 1) {
+      const existingData = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (let i = 0; i < existingData.length; i++) {
+        if (existingData[i][0] === tracerName) {
+          rowIndex = i + 2; // +2 because we start from row 2
+          break;
+        }
+      }
     }
     
-    updateCloudProgress(10, `${participants.length} participants, ${totalShapes} shapes`);
+    const rowData = [
+      tracerName,
+      savedAt,
+      version,
+      participantCount,
+      trialCount,
+      totalShapes,
+      JSON.stringify(settings),
+      '' // Placeholder - we'll handle AllData separately
+    ];
     
-    console.log('=== SAVE TO CLOUD DEBUG ===');
-    console.log('Participants:', participants);
-    console.log('Total shapes:', totalShapes);
-    console.log('Data breakdown:', dataDebug);
+    // Google Sheets has a 50,000 character limit per cell
+    // Split large JSON across multiple cells if needed
+    const MAX_CELL_SIZE = 49000; // Leave some margin
+    const allDataJson = JSON.stringify(allData);
+    const chunks = [];
     
-    const saveData = {
-        action: 'saveProgress',
-        tracerName: tracerName,
-        savedAt: new Date().toISOString(),
-        allData: allData,
-        settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize }
-    };
+    for (let i = 0; i < allDataJson.length; i += MAX_CELL_SIZE) {
+      chunks.push(allDataJson.substring(i, i + MAX_CELL_SIZE));
+    }
     
-    // Log the size of the payload
-    const payloadSize = JSON.stringify(saveData).length;
-    const payloadKB = (payloadSize / 1024).toFixed(1);
-    console.log('Payload size:', payloadSize, 'bytes');
+    Logger.log('AllData size: ' + allDataJson.length + ' chars, split into ' + chunks.length + ' chunks');
     
-    updateCloudProgress(20, `Uploading ${payloadKB} KB...`);
+    // Prepare full row with all chunks
+    const fullRowData = rowData.slice(0, 7); // First 7 columns
+    for (let i = 0; i < chunks.length; i++) {
+      fullRowData.push(chunks[i]);
+    }
     
-    try {
-        updateCloudProgress(30, 'Connecting to Google Sheets...');
+    if (rowIndex > 0) {
+      // Update existing row - first clear any old chunk columns
+      const lastCol = sheet.getLastColumn();
+      if (lastCol > 7) {
+        sheet.getRange(rowIndex, 8, 1, lastCol - 7).clearContent();
+      }
+      
+      // Write entire row at once (much faster than cell by cell)
+      sheet.getRange(rowIndex, 1, 1, fullRowData.length).setValues([fullRowData]);
+      
+      Logger.log('Updated existing tracer: ' + tracerName);
+    } else {
+      // Append new row with all data at once
+      sheet.appendRow(fullRowData);
+      
+      Logger.log('Added new tracer: ' + tracerName);
+    }
+    
+    // Release lock before updating coordinate sheet (it has its own lock)
+    lock.releaseLock();
+    
+    // Update coordinate data sheet (has its own locking)
+    updateCoordinateSheet(spreadsheet, tracerName, allData);
+    
+    // Log activity
+    logActivity(spreadsheet, tracerName, 'SAVE', participantCount + ' participants, ' + trialCount + ' trials, ' + totalShapes + ' shapes + ' + chunks.length + ' JSON chunks');
+    
+    return jsonResponse({
+      result: 'success',
+      tracerName: tracerName,
+      savedAt: savedAt,
+      participantCount: participantCount,
+      trialCount: trialCount,
+      totalShapes: totalShapes,
+      jsonChunks: chunks.length
+    });
+    
+  } catch (e) {
+    Logger.log('Error in saveTracerProgress: ' + e.toString());
+    return jsonResponse({
+      result: 'error',
+      error: e.toString()
+    });
+  }
+}
+
+/**
+ * Update the flattened coordinate data sheet
+ * Old data is NEVER replaced or deleted. Only truly new rows are added.
+ * A row is considered duplicate if ALL 10 columns match exactly.
+ * Uses LockService to prevent concurrent modification issues
+ */
+function updateCoordinateSheet(spreadsheet, tracerName, allData) {
+  const lock = LockService.getScriptLock();
+  
+  try {
+    // Wait up to 30 seconds for the lock
+    lock.waitLock(30000);
+    
+    const sheet = spreadsheet.getSheetByName(COORDS_SHEET);
+    
+    // Get all existing rows and create a set of exact row signatures
+    const lastRow = sheet.getLastRow();
+    const existingRowSignatures = new Set();
+    
+    if (lastRow > 1) {
+      const allRows = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
+      allRows.forEach(row => {
+        // Create signature from ALL 10 columns for exact match
+        const signature = row.map(cell => String(cell)).join('|');
+        existingRowSignatures.add(signature);
+      });
+    }
+    
+    // Build new rows from this tracer's data
+    const newRows = [];
+    
+    const participants = Object.keys(allData).sort();
+    for (const participant of participants) {
+      const trials = Object.keys(allData[participant]).sort();
+      for (const trial of trials) {
+        const freqKeys = Object.keys(allData[participant][trial]).sort();
+        for (const freqKey of freqKeys) {
+          const d = allData[participant][trial][freqKey];
+          
+          // Parse frequency from key (e.g., "62.5Hz_80dB" -> "62.5")
+          const freqMatch = freqKey.match(/^(\d+(?:\.\d+)?)/);
+          const freqHz = freqMatch ? freqMatch[1] : freqKey;
+          
+          // Red traced shapes
+          if (d.red && d.red.length > 0) {
+            d.red.forEach((shape, shapeIdx) => {
+              if (shape && shape.length > 0) {
+                shape.forEach((pt, ptIdx) => {
+                  const row = [
+                    tracerName,
+                    participant,
+                    trial,
+                    freqHz,
+                    'Red',
+                    'Traced',
+                    shapeIdx + 1,
+                    ptIdx + 1,
+                    pt.x,
+                    pt.y
+                  ];
+                  const signature = row.map(cell => String(cell)).join('|');
+                  if (!existingRowSignatures.has(signature)) {
+                    newRows.push(row);
+                    existingRowSignatures.add(signature); // Prevent duplicates within this export
+                  }
+                });
+              }
+            });
+          }
+          
+          // Blue traced shapes
+          if (d.blue && d.blue.length > 0) {
+            d.blue.forEach((shape, shapeIdx) => {
+              if (shape && shape.length > 0) {
+                shape.forEach((pt, ptIdx) => {
+                  const row = [
+                    tracerName,
+                    participant,
+                    trial,
+                    freqHz,
+                    'Blue',
+                    'Traced',
+                    shapeIdx + 1,
+                    ptIdx + 1,
+                    pt.x,
+                    pt.y
+                  ];
+                  const signature = row.map(cell => String(cell)).join('|');
+                  if (!existingRowSignatures.has(signature)) {
+                    newRows.push(row);
+                    existingRowSignatures.add(signature);
+                  }
+                });
+              }
+            });
+          }
+          
+          // Red average shape
+          if (d.redAvg && d.redAvg.length > 0) {
+            d.redAvg.forEach((pt, ptIdx) => {
+              const row = [
+                tracerName,
+                participant,
+                trial,
+                freqHz,
+                'Red',
+                'Average',
+                1,
+                ptIdx + 1,
+                pt.x,
+                pt.y
+              ];
+              const signature = row.map(cell => String(cell)).join('|');
+              if (!existingRowSignatures.has(signature)) {
+                newRows.push(row);
+                existingRowSignatures.add(signature);
+              }
+            });
+          }
+          
+          // Blue average shape
+          if (d.blueAvg && d.blueAvg.length > 0) {
+            d.blueAvg.forEach((pt, ptIdx) => {
+              const row = [
+                tracerName,
+                participant,
+                trial,
+                freqHz,
+                'Blue',
+                'Average',
+                1,
+                ptIdx + 1,
+                pt.x,
+                pt.y
+              ];
+              const signature = row.map(cell => String(cell)).join('|');
+              if (!existingRowSignatures.has(signature)) {
+                newRows.push(row);
+                existingRowSignatures.add(signature);
+              }
+            });
+          }
+        }
+      }
+    }
+    
+    // Only append truly new rows - never modify existing data
+    if (newRows.length > 0) {
+      const startRow = sheet.getLastRow() + 1;
+      sheet.getRange(startRow, 1, newRows.length, 10).setValues(newRows);
+      Logger.log('Added ' + newRows.length + ' new rows for ' + tracerName);
+    } else {
+      Logger.log('No new rows to add for ' + tracerName + ' - all data already exists');
+    }
+    
+  } catch (e) {
+    Logger.log('Error in updateCoordinateSheet: ' + e.toString());
+    throw e;
+  } finally {
+    // Always release the lock
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Update summary sheet
+ */
+function updateSummarySheet(spreadsheet, tracerName, allData) {
+  const sheet = spreadsheet.getSheetByName(SUMMARY_SHEET);
+  const now = new Date().toISOString();
+  
+  // Get existing data to find/update rows
+  const lastRow = sheet.getLastRow();
+  const existingKeys = {};
+  
+  if (lastRow > 1) {
+    const existingData = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+    for (let i = 0; i < existingData.length; i++) {
+      const key = existingData[i][0] + '|' + existingData[i][1] + '|' + existingData[i][2];
+      existingKeys[key] = i + 2; // Row number
+    }
+  }
+  
+  // Process each participant/trial/frequency
+  for (const participant of Object.keys(allData)) {
+    for (const trial of Object.keys(allData[participant])) {
+      for (const freqKey of Object.keys(allData[participant][trial])) {
+        const d = allData[participant][trial][freqKey];
+        const key = participant + '|' + trial + '|' + freqKey;
         
-        // Use no-cors mode since Google Apps Script redirects
-        await fetch(url, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify(saveData)
+        const redShapes = d.red ? d.red.length : 0;
+        const blueShapes = d.blue ? d.blue.length : 0;
+        const hasRedAvg = d.redAvg ? 'Yes' : 'No';
+        const hasBlueAvg = d.blueAvg ? 'Yes' : 'No';
+        
+        let totalPoints = 0;
+        if (d.red) d.red.forEach(s => { if (s) totalPoints += s.length; });
+        if (d.blue) d.blue.forEach(s => { if (s) totalPoints += s.length; });
+        if (d.redAvg) totalPoints += d.redAvg.length;
+        if (d.blueAvg) totalPoints += d.blueAvg.length;
+        
+        const rowData = [
+          participant,
+          trial,
+          freqKey,
+          redShapes,
+          blueShapes,
+          hasRedAvg,
+          hasBlueAvg,
+          totalPoints,
+          tracerName,
+          now
+        ];
+        
+        if (existingKeys[key]) {
+          // Update existing row
+          sheet.getRange(existingKeys[key], 1, 1, 10).setValues([rowData]);
+        } else {
+          // Append new row
+          sheet.appendRow(rowData);
+          existingKeys[key] = sheet.getLastRow();
+        }
+      }
+    }
+  }
+}
+
+// ============================================
+// LOAD FUNCTIONS
+// ============================================
+
+/**
+ * Load a tracer's progress
+ */
+function loadTracerProgress(spreadsheet, tracerName) {
+  if (!tracerName) {
+    return jsonResponse({ error: 'tracerName is required' });
+  }
+  
+  const sheet = spreadsheet.getSheetByName(TRACERS_SHEET);
+  
+  if (!sheet) {
+    return jsonResponse({ error: 'No data found. Save some progress first.' });
+  }
+  
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastRow <= 1) {
+    return jsonResponse({ error: 'No tracer data found' });
+  }
+  
+  // Get all columns (including potential JSON chunks beyond column 8)
+  const maxCols = Math.max(lastCol, 20); // Get at least 20 columns to capture chunks
+  const data = sheet.getRange(2, 1, lastRow - 1, maxCols).getValues();
+  
+  for (let i = 0; i < data.length; i++) {
+    if (data[i][0] === tracerName) {
+      try {
+        // Reassemble JSON chunks from column 8 onwards
+        let allDataJson = '';
+        for (let col = 7; col < data[i].length; col++) {
+          if (data[i][col] && typeof data[i][col] === 'string' && data[i][col].length > 0) {
+            allDataJson += data[i][col];
+          }
+        }
+        
+        const allData = JSON.parse(allDataJson || '{}');
+        const settings = JSON.parse(data[i][6] || '{}');
+        
+        Logger.log('Loaded ' + tracerName + ': JSON size = ' + allDataJson.length + ' chars');
+        
+        // Log activity
+        logActivity(spreadsheet, tracerName, 'LOAD', data[i][3] + ' participants loaded');
+        
+        return jsonResponse({
+          success: true,
+          tracerName: tracerName,
+          savedAt: data[i][1],
+          version: data[i][2],
+          participantCount: data[i][3],
+          trialCount: data[i][4],
+          totalShapes: data[i][5],
+          settings: settings,
+          allData: allData
         });
-        
-        updateCloudProgress(60, 'Data sent, verifying...');
-        
-        // Verify by checking if save worked
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        updateCloudProgress(80, 'Checking save status...');
+      } catch (e) {
+        Logger.log('Parse error for ' + tracerName + ': ' + e.toString());
+        return jsonResponse({ error: 'Failed to parse saved data: ' + e.toString() });
+      }
+    }
+  }
+  
+  return jsonResponse({
+    found: false,
+    error: 'Tracer not found: ' + tracerName
+  });
+}
+
+/**
+ * Load ALL data for a specific tracer from the CoordinateData sheet
+ * This includes all historical exports, not just the latest
+ */
+function loadAllFromCoordinates(spreadsheet, tracerName) {
+  if (!tracerName) {
+    return jsonResponse({ error: 'tracerName is required' });
+  }
+  
+  const sheet = spreadsheet.getSheetByName(COORDS_SHEET);
+  
+  if (!sheet) {
+    return jsonResponse({ error: 'No coordinate data found' });
+  }
+  
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return jsonResponse({ error: 'No coordinate data found' });
+  }
+  
+  // Frequency to dB mapping (must match the app's FREQUENCIES constant)
+  const freqToDb = {
+    '62.5': 100,
+    '125': 90,
+    '250': 85,
+    '500': 80,
+    '1000': 80,
+    '2000': 80
+  };
+  
+  // Get all data from CoordinateData sheet
+  const data = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
+  
+  // Build allData structure from coordinates
+  const allData = {};
+  let pointCount = 0;
+  
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const rowTracer = String(row[0]);
+    
+    // Filter by tracer name if specified
+    if (rowTracer !== tracerName) continue;
+    
+    const participant = String(row[1]);
+    const trial = String(row[2]);
+    const freqHz = String(row[3]);
+    const color = String(row[4]); // 'Red' or 'Blue'
+    const shapeType = String(row[5]); // 'Traced' or 'Average'
+    const shapeNum = parseInt(row[6]) || 1;
+    const pointIdx = parseInt(row[7]) || 1;
+    const x = parseFloat(row[8]);
+    const y = parseFloat(row[9]);
+    
+    // Skip invalid data
+    if (isNaN(x) || isNaN(y)) continue;
+    
+    // Build frequency key to match app format: "62.5Hz_100dB"
+    const db = freqToDb[freqHz] || 80;
+    const freqKey = freqHz + 'Hz_' + db + 'dB';
+    
+    // Initialize structure
+    if (!allData[participant]) allData[participant] = {};
+    if (!allData[participant][trial]) allData[participant][trial] = {};
+    if (!allData[participant][trial][freqKey]) {
+      allData[participant][trial][freqKey] = { red: [], blue: [], redAvg: null, blueAvg: null };
+    }
+    
+    const freqData = allData[participant][trial][freqKey];
+    
+    if (shapeType === 'Traced') {
+      const shapeArray = color === 'Red' ? freqData.red : freqData.blue;
+      // Ensure shape array has enough slots
+      while (shapeArray.length < shapeNum) {
+        shapeArray.push([]);
+      }
+      // Add point to the shape
+      if (!shapeArray[shapeNum - 1]) shapeArray[shapeNum - 1] = [];
+      shapeArray[shapeNum - 1].push({ x: x, y: y });
+    } else if (shapeType === 'Average') {
+      const avgKey = color === 'Red' ? 'redAvg' : 'blueAvg';
+      if (!freqData[avgKey]) freqData[avgKey] = [];
+      freqData[avgKey].push({ x: x, y: y });
+    }
+    
+    pointCount++;
+  }
+  
+  Logger.log('Loaded ' + pointCount + ' points for tracer: ' + tracerName);
+  logActivity(spreadsheet, tracerName, 'LOAD_COORDS', pointCount + ' points from CoordinateData');
+  
+  return jsonResponse({
+    success: true,
+    tracerName: tracerName,
+    pointCount: pointCount,
+    allData: allData
+  });
+}
+
+/**
+ * Load ALL coordinate data from all tracers
+ * Returns combined data from the CoordinateData sheet
+ */
+function loadAllCoordinatesData(spreadsheet) {
+  const sheet = spreadsheet.getSheetByName(COORDS_SHEET);
+  
+  if (!sheet) {
+    return jsonResponse({ error: 'No coordinate data found' });
+  }
+  
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return jsonResponse({ error: 'No coordinate data found' });
+  }
+  
+  // Frequency to dB mapping (must match the app's FREQUENCIES constant)
+  const freqToDb = {
+    '62.5': 100,
+    '125': 90,
+    '250': 85,
+    '500': 80,
+    '1000': 80,
+    '2000': 80
+  };
+  
+  // Get all data from CoordinateData sheet
+  const data = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
+  
+  // Build allData structure from all coordinates
+  const allData = {};
+  let pointCount = 0;
+  const tracerSet = new Set();
+  
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const tracer = String(row[0]);
+    const participant = String(row[1]);
+    const trial = String(row[2]);
+    const freqHz = String(row[3]);
+    const color = String(row[4]);
+    const shapeType = String(row[5]);
+    const shapeNum = parseInt(row[6]) || 1;
+    const pointIdx = parseInt(row[7]) || 1;
+    const x = parseFloat(row[8]);
+    const y = parseFloat(row[9]);
+    
+    // Skip invalid data
+    if (isNaN(x) || isNaN(y)) continue;
+    
+    tracerSet.add(tracer);
+    
+    // Build frequency key to match app format: "62.5Hz_100dB"
+    const db = freqToDb[freqHz] || 80;
+    const freqKey = freqHz + 'Hz_' + db + 'dB';
+    
+    // Initialize structure
+    if (!allData[participant]) allData[participant] = {};
+    if (!allData[participant][trial]) allData[participant][trial] = {};
+    if (!allData[participant][trial][freqKey]) {
+      allData[participant][trial][freqKey] = { red: [], blue: [], redAvg: null, blueAvg: null };
+    }
+    
+    const freqData = allData[participant][trial][freqKey];
+    
+    if (shapeType === 'Traced') {
+      const shapeArray = color === 'Red' ? freqData.red : freqData.blue;
+      while (shapeArray.length < shapeNum) {
+        shapeArray.push([]);
+      }
+      if (!shapeArray[shapeNum - 1]) shapeArray[shapeNum - 1] = [];
+      shapeArray[shapeNum - 1].push({ x: x, y: y });
+    } else if (shapeType === 'Average') {
+      const avgKey = color === 'Red' ? 'redAvg' : 'blueAvg';
+      if (!freqData[avgKey]) freqData[avgKey] = [];
+      freqData[avgKey].push({ x: x, y: y });
+    }
+    
+    pointCount++;
+  }
+  
+  Logger.log('Loaded ' + pointCount + ' total points from ' + tracerSet.size + ' tracers');
+  logActivity(spreadsheet, 'ALL', 'LOAD_ALL_COORDS', pointCount + ' points from ' + tracerSet.size + ' tracers');
+  
+  return jsonResponse({
+    success: true,
+    tracerCount: tracerSet.size,
+    tracers: Array.from(tracerSet),
+    pointCount: pointCount,
+    allData: allData
+  });
+}
+
+/**
+ * List all tracers
+ */
+function listAllTracers(spreadsheet) {
+  const sheet = spreadsheet.getSheetByName(TRACERS_SHEET);
+  
+  if (!sheet) {
+    return jsonResponse({ tracers: [], message: 'No data saved yet' });
+  }
+  
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return jsonResponse({ tracers: [], message: 'No tracers found' });
+  }
+  
+  const data = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
+  const tracers = [];
+  
+  for (let i = 0; i < data.length; i++) {
+    if (data[i][0]) {
+      tracers.push({
+        name: data[i][0],
+        savedAt: data[i][1],
+        version: data[i][2],
+        participantCount: data[i][3],
+        trialCount: data[i][4],
+        totalShapes: data[i][5]
+      });
+    }
+  }
+  
+  // Sort by most recent first
+  tracers.sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
+  
+  return jsonResponse({
+    tracers: tracers,
+    count: tracers.length
+  });
+}
+
+/**
+ * Merge all tracers' data
+ */
+function mergeAllTracers(spreadsheet) {
+  const sheet = spreadsheet.getSheetByName(TRACERS_SHEET);
+  
+  if (!sheet) {
+    return jsonResponse({ error: 'No data found' });
+  }
+  
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastRow <= 1) {
+    return jsonResponse({ error: 'No tracer data found' });
+  }
+  
+  // Get all columns to capture JSON chunks
+  const maxCols = Math.max(lastCol, 20);
+  const data = sheet.getRange(2, 1, lastRow - 1, maxCols).getValues();
+  
+  const mergedData = {};
+  const mergedSettings = { resampleRate: 1000, imageOpacity: 10, brushSize: 5 };
+  let tracerCount = 0;
+  const tracerNames = [];
+  
+  for (let i = 0; i < data.length; i++) {
+    if (data[i][0]) {
+      // Reassemble JSON chunks from column 8 onwards
+      let allDataJson = '';
+      for (let col = 7; col < data[i].length; col++) {
+        if (data[i][col] && typeof data[i][col] === 'string' && data[i][col].length > 0) {
+          allDataJson += data[i][col];
+        }
+      }
+      
+      if (allDataJson.length > 0) {
+        tracerCount++;
+        tracerNames.push(data[i][0]);
         
         try {
-            const checkUrl = `${url}?action=listTracers`;
-            const checkResp = await fetch(checkUrl);
-            if (checkResp.ok) {
-                const data = await checkResp.json();
-                const found = data.tracers?.find(t => t.name === tracerName);
+          const tracerData = JSON.parse(allDataJson);
+          const tracerSettings = JSON.parse(data[i][6] || '{}');
+        
+          // Use latest settings
+          if (tracerSettings.resampleRate) mergedSettings.resampleRate = tracerSettings.resampleRate;
+          if (tracerSettings.imageOpacity !== undefined) mergedSettings.imageOpacity = tracerSettings.imageOpacity;
+          if (tracerSettings.brushSize) mergedSettings.brushSize = tracerSettings.brushSize;
+          
+          // Merge data
+          for (const p of Object.keys(tracerData)) {
+            if (!mergedData[p]) mergedData[p] = {};
+            
+            for (const t of Object.keys(tracerData[p])) {
+              if (!mergedData[p][t]) mergedData[p][t] = {};
+              
+              for (const f of Object.keys(tracerData[p][t])) {
+                if (!mergedData[p][t][f]) {
+                  mergedData[p][t][f] = { red: [], blue: [], redAvg: null, blueAvg: null };
+                }
                 
-                updateCloudProgress(100);
+                const src = tracerData[p][t][f];
+                const dst = mergedData[p][t][f];
                 
-                if (found) {
-                    console.log('Verification - found tracer:', found);
-                    const savedTime = new Date().toLocaleTimeString();
-                    showCloudSuccess(
-                        'Saved Successfully!', 
-                        `Your data has been saved to the cloud.`,
-                        `Tracer: ${tracerName}\nParticipants: ${found.participantCount}\nTrials: ${found.trialCount}\nShapes: ${found.totalShapes}\nTime: ${savedTime}`
-                    );
-                    setCloudStatus(`✅ Saved as "${tracerName}" (${found.totalShapes} shapes)`);
-                } else {
-                    console.log('Verification - tracer not found in list');
-                    showCloudSuccess(
-                        'Save Complete', 
-                        'Data was sent to Google Sheets.',
-                        `Tracer: ${tracerName}\nNote: Verification pending. Check your Google Sheet.`
-                    );
-                    setCloudStatus(`✅ Saved as "${tracerName}"`);
+                // Concatenate shapes
+                if (src.red && src.red.length > 0) {
+                  dst.red = dst.red.concat(src.red);
                 }
-            } else {
-                throw new Error('Verification request failed');
+                if (src.blue && src.blue.length > 0) {
+                  dst.blue = dst.blue.concat(src.blue);
+                }
+                
+                // Keep most recent average
+                if (src.redAvg) dst.redAvg = src.redAvg;
+                if (src.blueAvg) dst.blueAvg = src.blueAvg;
+              }
             }
-        } catch (verifyError) {
-            console.log('Verification error:', verifyError);
-            // Save may have worked, just verification failed
-            showCloudSuccess(
-                'Save Sent', 
-                'Data was sent to Google Sheets.',
-                `Tracer: ${tracerName}\nNote: Could not verify. Check your Google Sheet directly.`
-            );
-            setCloudStatus(`✅ Saved as "${tracerName}" (unverified)`);
+          }
+        } catch (e) {
+          Logger.log('Error parsing tracer ' + data[i][0] + ': ' + e);
         }
-        
-        status('Saved to cloud');
-    } catch (e) {
-        console.error('Save error:', e);
-        showCloudError(
-            'Save Failed',
-            'Could not save to Google Sheets.',
-            e.message || 'Check your internet connection and Apps Script URL.'
-        );
-        setCloudStatus('❌ Save failed: ' + e.message, true);
-        status('Cloud save failed');
+      }
     }
-}
-
-async function loadFromCloud(tracerNameOverride = null, mergeMode = false, fromCoordinates = false) {
-    const url = getCloudUrl();
-    const tracerName = tracerNameOverride || getTracerName();
-    
-    if (!url) {
-        setCloudStatus('❌ Enter Apps Script URL', true);
-        return;
+  }
+  
+  // Count merged stats
+  let totalParticipants = Object.keys(mergedData).length;
+  let totalTrials = 0;
+  let totalShapes = 0;
+  
+  for (const p of Object.keys(mergedData)) {
+    for (const t of Object.keys(mergedData[p])) {
+      totalTrials++;
+      for (const f of Object.keys(mergedData[p][t])) {
+        const d = mergedData[p][t][f];
+        if (d.red) totalShapes += d.red.length;
+        if (d.blue) totalShapes += d.blue.length;
+      }
     }
-    if (!tracerName) {
-        setCloudStatus('❌ Enter tracer name to load', true);
-        return;
-    }
-    
-    try {
-        setCloudStatus('☁️ Loading from cloud...');
-        status('Loading from cloud...');
-        
-        // Use loadAllFromCoordinates to get complete history, or loadProgress for latest only
-        const action = fromCoordinates ? 'loadAllFromCoordinates' : 'loadProgress';
-        const response = await fetch(`${url}?action=${action}&tracerName=${encodeURIComponent(tracerName)}`);
-        const data = await response.json();
-        
-        if (data.error) {
-            setCloudStatus('❌ ' + data.error, true);
-            status('Load failed: ' + data.error);
-            return;
-        }
-        
-        if (data.allData) {
-            if (mergeMode) {
-                // Merge with existing data instead of replacing
-                mergeDataInto(allData, data.allData);
-            } else {
-                // Replace current data
-                allData = data.allData;
-            }
-            
-            if (data.settings && !mergeMode) {
-                if (data.settings.resampleRate) {
-                    resampleRate = data.settings.resampleRate;
-                    document.getElementById('resample-slider').value = resampleRate;
-                    document.getElementById('resample-val').textContent = resampleRate;
-                }
-                if (data.settings.imageOpacity !== undefined) {
-                    IMAGE_OPACITY = data.settings.imageOpacity / 100;
-                    document.getElementById('img-opacity-slider').value = data.settings.imageOpacity;
-                    document.getElementById('img-opacity-val').textContent = data.settings.imageOpacity + '%';
-                }
-                if (data.settings.shapeOpacity !== undefined) {
-                    SHAPE_OPACITY = data.settings.shapeOpacity / 100;
-                    document.getElementById('shape-opacity-slider').value = data.settings.shapeOpacity;
-                    document.getElementById('shape-opacity-val').textContent = data.settings.shapeOpacity + '%';
-                }
-                if (data.settings.brushSize) {
-                    brushSize = data.settings.brushSize;
-                    document.getElementById('brush-slider').value = brushSize;
-                    document.getElementById('brush-val').textContent = brushSize;
-                }
-            }
-            
-            // Rebuild tabs
-            rebuildTabsFromData();
-            
-            const action = mergeMode ? 'Added' : 'Loaded';
-            const source = fromCoordinates ? ' (all history)' : '';
-            if (data.savedAt) {
-                const savedTime = new Date(data.savedAt).toLocaleString();
-                setCloudStatus(`✅ ${action} "${tracerName}"${source} (saved ${savedTime})`);
-            } else if (data.pointCount) {
-                setCloudStatus(`✅ ${action} "${tracerName}"${source}: ${data.pointCount} points`);
-            } else {
-                setCloudStatus(`✅ ${action} "${tracerName}"${source}`);
-            }
-            status(mergeMode ? 'Data added from cloud' : 'Loaded from cloud');
-        } else {
-            setCloudStatus('⚠️ No data found for ' + tracerName);
-        }
-    } catch (e) {
-        setCloudStatus('❌ Load failed: ' + e.message, true);
-        status('Cloud load failed');
-    }
+  }
+  
+  logActivity(spreadsheet, 'SYSTEM', 'MERGE', tracerCount + ' tracers merged: ' + tracerNames.join(', '));
+  
+  return jsonResponse({
+    success: true,
+    tracerCount: tracerCount,
+    tracerNames: tracerNames,
+    participantCount: totalParticipants,
+    trialCount: totalTrials,
+    totalShapes: totalShapes,
+    settings: mergedSettings,
+    allData: mergedData
+  });
 }
 
 /**
- * Merge source data into target data without replacing existing shapes
+ * Get summary
  */
-function mergeDataInto(target, source) {
-    for (const participant of Object.keys(source)) {
-        if (!target[participant]) {
-            target[participant] = {};
-        }
-        for (const trial of Object.keys(source[participant])) {
-            if (!target[participant][trial]) {
-                target[participant][trial] = {};
-            }
-            for (const freq of Object.keys(source[participant][trial])) {
-                if (!target[participant][trial][freq]) {
-                    target[participant][trial][freq] = { red: [], blue: [], redAvg: null, blueAvg: null };
-                }
-                
-                const srcData = source[participant][trial][freq];
-                const tgtData = target[participant][trial][freq];
-                
-                // Merge red shapes (avoid exact duplicates)
-                if (srcData.red) {
-                    srcData.red.forEach(srcShape => {
-                        if (srcShape && srcShape.length > 0) {
-                            const isDuplicate = tgtData.red.some(tgtShape => 
-                                tgtShape && tgtShape.length === srcShape.length &&
-                                tgtShape.every((pt, i) => pt.x === srcShape[i].x && pt.y === srcShape[i].y)
-                            );
-                            if (!isDuplicate) {
-                                tgtData.red.push(srcShape);
-                            }
-                        }
-                    });
-                }
-                
-                // Merge blue shapes (avoid exact duplicates)
-                if (srcData.blue) {
-                    srcData.blue.forEach(srcShape => {
-                        if (srcShape && srcShape.length > 0) {
-                            const isDuplicate = tgtData.blue.some(tgtShape => 
-                                tgtShape && tgtShape.length === srcShape.length &&
-                                tgtShape.every((pt, i) => pt.x === srcShape[i].x && pt.y === srcShape[i].y)
-                            );
-                            if (!isDuplicate) {
-                                tgtData.blue.push(srcShape);
-                            }
-                        }
-                    });
-                }
-                
-                // Keep existing averages or use source averages if target has none
-                if (!tgtData.redAvg && srcData.redAvg) {
-                    tgtData.redAvg = srcData.redAvg;
-                }
-                if (!tgtData.blueAvg && srcData.blueAvg) {
-                    tgtData.blueAvg = srcData.blueAvg;
-                }
-            }
-        }
+function getSummary(spreadsheet) {
+  const sheet = spreadsheet.getSheetByName(SUMMARY_SHEET);
+  
+  if (!sheet) {
+    return jsonResponse({ error: 'No summary data available' });
+  }
+  
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return jsonResponse({ summary: { participants: {}, totalEntries: 0 } });
+  }
+  
+  const data = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
+  
+  const summary = {
+    participants: {},
+    totalEntries: data.length
+  };
+  
+  for (let i = 0; i < data.length; i++) {
+    const participant = data[i][0];
+    const trial = data[i][1];
+    const freq = data[i][2];
+    
+    if (!summary.participants[participant]) {
+      summary.participants[participant] = { trials: {} };
     }
+    if (!summary.participants[participant].trials[trial]) {
+      summary.participants[participant].trials[trial] = { frequencies: [] };
+    }
+    
+    summary.participants[participant].trials[trial].frequencies.push({
+      frequency: freq,
+      redShapes: data[i][3],
+      blueShapes: data[i][4],
+      redAvg: data[i][5],
+      blueAvg: data[i][6],
+      totalPoints: data[i][7],
+      lastUpdatedBy: data[i][8],
+      lastUpdatedAt: data[i][9]
+    });
+  }
+  
+  return jsonResponse({ summary: summary });
+}
+
+// ============================================
+// UTILITY FUNCTIONS
+// ============================================
+
+/**
+ * Log activity
+ */
+function logActivity(spreadsheet, tracerName, action, details) {
+  const sheet = spreadsheet.getSheetByName(LOG_SHEET);
+  
+  if (sheet) {
+    sheet.appendRow([
+      new Date().toISOString(),
+      tracerName,
+      action,
+      details
+    ]);
+    
+    // Keep only last 1000 entries
+    const numRows = sheet.getLastRow();
+    if (numRows > 1001) {
+      sheet.deleteRows(2, numRows - 1001);
+    }
+  }
 }
 
 /**
- * Load all tracers' data at once from CoordinateData sheet
- * This loads ALL historical exports, not just the latest from each tracer
+ * Create JSON response
  */
-async function loadAllTracers() {
-    const url = getCloudUrl();
-    if (!url) {
-        setCloudStatus('❌ Enter Apps Script URL', true);
-        return;
+function jsonResponse(data) {
+  return ContentService
+    .createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ============================================
+// SETUP AND TEST FUNCTIONS
+// ============================================
+
+/**
+ * Initial setup function - Run this FIRST
+ * Go to Run > Run function > setupSheets
+ */
+function setupSheets() {
+  Logger.log('='.repeat(60));
+  Logger.log('Setting up Contour Tracer Cloud Collaboration');
+  Logger.log('='.repeat(60));
+  
+  if (!SHEET_ID || SHEET_ID === '') {
+    Logger.log('');
+    Logger.log('ERROR: SHEET_ID is not set!');
+    Logger.log('');
+    Logger.log('To fix this:');
+    Logger.log('1. Open your Google Sheet');
+    Logger.log('2. Copy the ID from the URL:');
+    Logger.log('   https://docs.google.com/spreadsheets/d/YOUR_ID_HERE/edit');
+    Logger.log('3. Paste it into the SHEET_ID variable at the top of this script');
+    Logger.log('4. Run this function again');
+    return;
+  }
+  
+  try {
+    const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+    Logger.log('Opened spreadsheet: ' + spreadsheet.getName());
+    Logger.log('');
+    
+    // Create all sheets
+    Logger.log('Creating sheets...');
+    ensureSheetExists(spreadsheet, TRACERS_SHEET, getTracerHeaders());
+    ensureSheetExists(spreadsheet, COORDS_SHEET, getCoordHeaders());
+    ensureSheetExists(spreadsheet, SUMMARY_SHEET, getSummaryHeaders());
+    ensureSheetExists(spreadsheet, LOG_SHEET, getLogHeaders());
+    
+    // Remove default Sheet1 if it exists and we have other sheets
+    const defaultSheet = spreadsheet.getSheetByName('Sheet1');
+    if (defaultSheet && spreadsheet.getSheets().length > 1) {
+      spreadsheet.deleteSheet(defaultSheet);
+      Logger.log('Removed default Sheet1');
     }
     
-    try {
-        setCloudStatus('☁️ Loading all coordinate data...');
-        status('Loading all data from CoordinateData...');
-        
-        const response = await fetch(`${url}?action=loadAllCoordinates`);
-        const data = await response.json();
-        
-        if (data.error) {
-            setCloudStatus('❌ ' + data.error, true);
-            status('Load failed: ' + data.error);
-            return;
-        }
-        
-        if (data.allData) {
-            allData = data.allData;
-            rebuildTabsFromData();
-            
-            setCloudStatus(`✅ Loaded ${data.pointCount} points from ${data.tracerCount} tracers`);
-            status(`Loaded all data: ${data.pointCount} points from ${data.tracerCount} tracers`);
-        } else {
-            setCloudStatus('⚠️ No coordinate data found');
-        }
-        
-    } catch (e) {
-        setCloudStatus('❌ Load all failed: ' + e.message, true);
-        status('Load all failed');
-    }
-}
-
-async function listTracers() {
-    const url = getCloudUrl();
-    if (!url) {
-        setCloudStatus('❌ Enter Apps Script URL', true);
-        return;
-    }
+    Logger.log('');
+    Logger.log('Sheets created:');
+    spreadsheet.getSheets().forEach(sheet => {
+      Logger.log('  - ' + sheet.getName());
+    });
     
-    try {
-        setCloudStatus('☁️ Fetching tracer list...');
-        
-        const response = await fetch(`${url}?action=listTracers`);
-        const data = await response.json();
-        
-        const select = document.getElementById('tracer-select');
-        select.innerHTML = '<option value="">-- Select tracer to load --</option>';
-        
-        if (data.tracers && data.tracers.length > 0) {
-            data.tracers.forEach(t => {
-                const opt = document.createElement('option');
-                opt.value = t.name;
-                opt.textContent = `${t.name} (${t.shapeCount} shapes, saved ${new Date(t.savedAt).toLocaleDateString()})`;
-                select.appendChild(opt);
-            });
-            setCloudStatus(`✅ Found ${data.tracers.length} tracers`);
-        } else {
-            setCloudStatus('⚠️ No tracers found');
-        }
-    } catch (e) {
-        setCloudStatus('❌ Failed to list tracers: ' + e.message, true);
-    }
-}
-
-async function mergeAllData() {
-    const url = getCloudUrl();
-    if (!url) {
-        setCloudStatus('❌ Enter Apps Script URL', true);
-        return;
-    }
+    Logger.log('');
+    Logger.log('='.repeat(60));
+    Logger.log('SETUP COMPLETE!');
+    Logger.log('='.repeat(60));
+    Logger.log('');
+    Logger.log('Next steps:');
+    Logger.log('1. Click Deploy > New deployment');
+    Logger.log('2. Click the gear icon and select "Web app"');
+    Logger.log('3. Set "Execute as" to "Me"');
+    Logger.log('4. Set "Who has access" to "Anyone"');
+    Logger.log('5. Click Deploy');
+    Logger.log('6. Copy the Web App URL');
+    Logger.log('7. Paste it into the Contour Tracer app');
     
-    if (!confirm('This will load and merge ALL tracers\' data. Your current unsaved work will be replaced. Continue?')) {
-        return;
-    }
-    
-    try {
-        setCloudStatus('☁️ Merging all tracer data...');
-        status('Merging all data...');
-        
-        const response = await fetch(`${url}?action=mergeAll`);
-        const data = await response.json();
-        
-        if (data.error) {
-            setCloudStatus('❌ ' + data.error, true);
-            return;
-        }
-        
-        if (data.allData) {
-            allData = data.allData;
-            rebuildTabsFromData();
-            setCloudStatus(`✅ Merged data from ${data.tracerCount} tracers`);
-            status('All data merged');
-        }
-    } catch (e) {
-        setCloudStatus('❌ Merge failed: ' + e.message, true);
-    }
+  } catch (error) {
+    Logger.log('');
+    Logger.log('ERROR: ' + error.toString());
+    Logger.log('');
+    Logger.log('Make sure:');
+    Logger.log('1. SHEET_ID is correct');
+    Logger.log('2. You have edit access to the spreadsheet');
+  }
 }
 
-function loadSelectedTracer() {
-    const select = document.getElementById('tracer-select');
-    const tracerName = select.value;
-    if (tracerName) {
-        loadFromCloud(tracerName, false, true); // Load mode (replace), from CoordinateData (all history)
-    }
-}
-
-function addSelectedTracer() {
-    const select = document.getElementById('tracer-select');
-    const tracerName = select.value;
-    if (tracerName) {
-        loadFromCloud(tracerName, true, true); // Merge mode (add to existing), from CoordinateData (all history)
-    }
-}
-
-function toggleAutoCloudSave() {
-    autoCloudSave = !autoCloudSave;
-    const btn = document.getElementById('auto-cloud-toggle');
-    btn.textContent = autoCloudSave ? '⚡ Auto-Save: ON' : '⚡ Auto-Save: OFF';
-    btn.className = autoCloudSave 
-        ? 'px-4 py-2 rounded-xl font-bold text-sm bg-green-500 text-white shadow'
-        : 'px-4 py-2 rounded-xl font-bold text-sm bg-amber-500 text-white shadow';
-    
-    localStorage.setItem('autoCloudSave', autoCloudSave);
-    status(autoCloudSave ? 'Auto-save to cloud enabled' : 'Auto-save disabled');
-}
-
-function triggerAutoSave() {
-    if (!autoCloudSave) return;
-    if (!getCloudUrl() || !getTracerName()) return;
-    
-    if (cloudSaveTimeout) clearTimeout(cloudSaveTimeout);
-    cloudSaveTimeout = setTimeout(() => {
-        saveToCloud();
-    }, 2000); // Save 2 seconds after last shape
-}
-
-function rebuildTabsFromData() {
-    const parts = new Map();
-    for (const p of Object.keys(allData)) {
-        parts.set(p, new Map());
-        for (const t of Object.keys(allData[p])) {
-            parts.get(p).set(t, new Set());
-            for (const fk of Object.keys(allData[p][t])) {
-                const hz = parseFloat(fk);
-                if (!isNaN(hz)) parts.get(p).get(t).add(hz);
+/**
+ * Test the save function
+ */
+function testSave() {
+  Logger.log('Testing save function...');
+  
+  if (!SHEET_ID || SHEET_ID === '') {
+    Logger.log('ERROR: SHEET_ID not configured');
+    return;
+  }
+  
+  const testData = {
+    postData: {
+      contents: JSON.stringify({
+        action: 'saveProgress',
+        tracerName: 'TEST_USER',
+        version: '4.0',
+        allData: {
+          'Test Participant': {
+            'Trial 1': {
+              '500Hz_80dB': {
+                red: [[{x: -2, y: 3}, {x: -1, y: 4}, {x: 0, y: 4.5}, {x: 1, y: 4}, {x: 2, y: 3}]],
+                blue: [[{x: -2, y: -3}, {x: -1, y: -4}, {x: 0, y: -4.5}, {x: 1, y: -4}, {x: 2, y: -3}]],
+                redAvg: [{x: -2, y: 3}, {x: 0, y: 4.5}, {x: 2, y: 3}],
+                blueAvg: null
+              }
             }
+          }
+        },
+        settings: {
+          resampleRate: 1000,
+          imageOpacity: 10,
+          brushSize: 5
         }
+      })
     }
-    
-    if (parts.size > 0) {
-        buildTabs(parts);
-        updateGallery();
-        updateTable();
-    }
+  };
+  
+  const result = doPost(testData);
+  Logger.log('Result: ' + result.getContent());
 }
 
-function loadCloudSettings() {
-    const url = localStorage.getItem('cloudUrl');
-    const name = localStorage.getItem('tracerName');
-    const autoSave = localStorage.getItem('autoCloudSave') === 'true';
-    
-    if (url) document.getElementById('cloud-url').value = url;
-    if (name) document.getElementById('tracer-name').value = name;
-    
-    if (autoSave) {
-        autoCloudSave = true;
-        const btn = document.getElementById('auto-cloud-toggle');
-        btn.textContent = '⚡ Auto-Save: ON';
-        btn.className = 'px-4 py-2 rounded-xl font-bold text-sm bg-green-500 text-white shadow';
+/**
+ * Test the list function
+ */
+function testList() {
+  Logger.log('Testing list function...');
+  
+  if (!SHEET_ID || SHEET_ID === '') {
+    Logger.log('ERROR: SHEET_ID not configured');
+    return;
+  }
+  
+  const testParams = {
+    parameter: {
+      action: 'listTracers'
     }
+  };
+  
+  const result = doGet(testParams);
+  Logger.log('Result: ' + result.getContent());
 }
 
-// ============================================
-// INIT
-// ============================================
-function init() {
-    canvas = document.getElementById('drawing-canvas');
-    ctx = canvas.getContext('2d');
-    canvas.width = canvas.height = CANVAS_SIZE;
-    
-    canvas.addEventListener('mousedown', startDraw);
-    canvas.addEventListener('mousemove', doDraw);
-    canvas.addEventListener('mouseup', endDraw);
-    canvas.addEventListener('mouseleave', endDraw);
-    canvas.addEventListener('touchstart', startDraw, { passive: false });
-    canvas.addEventListener('touchmove', doDraw, { passive: false });
-    canvas.addEventListener('touchend', endDraw);
-    
-    document.getElementById('color-red').onclick = () => { selColor = 'red'; document.getElementById('color-red').classList.add('selected'); document.getElementById('color-blue').classList.remove('selected'); };
-    document.getElementById('color-blue').onclick = () => { selColor = 'blue'; document.getElementById('color-blue').classList.add('selected'); document.getElementById('color-red').classList.remove('selected'); };
-    
-    document.getElementById('brush-slider').oninput = e => { brushSize = +e.target.value; document.getElementById('brush-val').textContent = brushSize; };
-    document.getElementById('resample-slider').oninput = e => { resampleRate = +e.target.value; document.getElementById('resample-val').textContent = resampleRate; };
-    document.getElementById('img-opacity-slider').oninput = e => { IMAGE_OPACITY = +e.target.value / 100; document.getElementById('img-opacity-val').textContent = e.target.value + '%'; redraw(); };
-    document.getElementById('shape-opacity-slider').oninput = e => { SHAPE_OPACITY = +e.target.value / 100; document.getElementById('shape-opacity-val').textContent = e.target.value + '%'; redraw(); };
-    
-    document.getElementById('toggle-draw').onclick = () => { drawingOn = !drawingOn; const b = document.getElementById('toggle-draw'); b.textContent = drawingOn ? '✏️ Drawing: ON' : '✏️ Drawing: OFF'; b.className = b.className.replace(drawingOn ? 'bg-red' : 'bg-green', drawingOn ? 'bg-green' : 'bg-red'); canvas.style.cursor = drawingOn ? 'crosshair' : 'default'; };
-    document.getElementById('undo-btn').onclick = undo;
-    document.getElementById('redo-btn').onclick = redo;
-    document.getElementById('clear-btn').onclick = () => { if (confirm('Clear all?')) { const d = curData(); if (d) { undoStack.push({ key: dataKey(), data: JSON.parse(JSON.stringify(d)) }); d.red = []; d.blue = []; d.redAvg = null; d.blueAvg = null; } redraw(); updateTable(); updateGallery(); document.getElementById('undo-btn').disabled = false; } };
-    document.getElementById('grid-btn').onclick = () => { showGrid = !showGrid; redraw(); };
-    
-    document.getElementById('zip-upload').onchange = e => { if (e.target.files[0]) handleZip(e.target.files[0]); };
-    document.getElementById('single-upload').onchange = e => { if (e.target.files[0]) handleSingle(e.target.files[0]); };
-    document.getElementById('json-import').onchange = e => { if (e.target.files[0]) handleJson(e.target.files[0]); };
-    
-    document.getElementById('bulk-avg').onclick = openModal;
-    document.getElementById('clear-avg').onclick = clearAvgCur;
-    document.getElementById('gen-freq-avg').onclick = generateFrequencyAverages;
-    document.getElementById('export-freq-png').onclick = exportFrequencyPNGs;
-    
-    document.getElementById('close-modal').onclick = () => document.getElementById('modal').classList.remove('active');
-    document.getElementById('cancel-modal').onclick = () => document.getElementById('modal').classList.remove('active');
-    document.getElementById('do-bulk').onclick = doBulk;
-    document.getElementById('sel-all-f').onclick = () => document.querySelectorAll('#mod-f input').forEach(c => c.checked = true);
-    
-    document.getElementById('toggle-data').onclick = () => document.getElementById('data-box').classList.toggle('hidden');
-    
-    document.getElementById('exp-csv').onclick = expCSV;
-    document.getElementById('exp-json').onclick = expJSON;
-    
-    // Cloud collaboration
-    document.getElementById('cloud-save').onclick = saveToCloud;
-    document.getElementById('cloud-load').onclick = () => loadFromCloud(null, false, true); // Load from CoordinateData
-    document.getElementById('cloud-list').onclick = listTracers;
-    document.getElementById('cloud-merge').onclick = mergeAllData;
-    document.getElementById('cloud-load-all').onclick = loadAllTracers;
-    document.getElementById('cloud-load-other').onclick = loadSelectedTracer;
-    document.getElementById('cloud-add-other').onclick = addSelectedTracer;
-    document.getElementById('auto-cloud-toggle').onclick = toggleAutoCloudSave;
-    document.getElementById('cloud-progress-close').onclick = hideCloudProgress;
-    
-    // Load saved cloud settings
-    loadCloudSettings();
-    
-    drawGrid();
+/**
+ * Clean up test data
+ */
+function cleanupTestData() {
+  if (!SHEET_ID || SHEET_ID === '') {
+    Logger.log('ERROR: SHEET_ID not configured');
+    return;
+  }
+  
+  const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+  
+  // Remove TEST_USER from TracerProgress
+  const tracersSheet = spreadsheet.getSheetByName(TRACERS_SHEET);
+  if (tracersSheet) {
+    const lastRow = tracersSheet.getLastRow();
+    if (lastRow > 1) {
+      const data = tracersSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (data[i][0] === 'TEST_USER') {
+          tracersSheet.deleteRow(i + 2);
+        }
+      }
+    }
+  }
+  
+  // Remove TEST_USER from CoordinateData
+  const coordsSheet = spreadsheet.getSheetByName(COORDS_SHEET);
+  if (coordsSheet) {
+    const lastRow = coordsSheet.getLastRow();
+    if (lastRow > 1) {
+      const data = coordsSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (data[i][0] === 'TEST_USER') {
+          coordsSheet.deleteRow(i + 2);
+        }
+      }
+    }
+  }
+  
+  // Remove test entries from Summary
+  const summarySheet = spreadsheet.getSheetByName(SUMMARY_SHEET);
+  if (summarySheet) {
+    const lastRow = summarySheet.getLastRow();
+    if (lastRow > 1) {
+      const data = summarySheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (data[i][0] === 'Test Participant') {
+          summarySheet.deleteRow(i + 2);
+        }
+      }
+    }
+  }
+  
+  Logger.log('Test data cleaned up');
 }
 
-window.addEventListener('load', init);
-</script>
-</body>
-</html>
+/**
+ * Create custom menu
+ */
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('Contour Tracer')
+    .addItem('Setup Sheets (Run First)', 'setupSheets')
+    .addSeparator()
+    .addItem('Test Save', 'testSave')
+    .addItem('Test List Tracers', 'testList')
+    .addItem('Cleanup Test Data', 'cleanupTestData')
+    .addToUi();
+}
