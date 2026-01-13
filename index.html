@@ -212,16 +212,19 @@
             
             <div class="border-t border-indigo-200 pt-4 mt-4">
                 <h4 class="font-semibold text-gray-700 mb-2">Team Collaboration</h4>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <button id="cloud-list" class="px-4 py-2 rounded-xl font-bold text-sm bg-indigo-500 text-white shadow">👥 List All Tracers</button>
-                    <button id="cloud-merge" class="px-4 py-2 rounded-xl font-bold text-sm bg-purple-500 text-white shadow">🔀 Merge All Data</button>
+                <div class="grid grid-cols-3 gap-3 mb-3">
+                    <button id="cloud-list" class="px-4 py-2 rounded-xl font-bold text-sm bg-indigo-500 text-white shadow">👥 List Tracers</button>
+                    <button id="cloud-load-all" class="px-4 py-2 rounded-xl font-bold text-sm bg-purple-500 text-white shadow">📥 Load All</button>
+                    <button id="cloud-merge" class="px-4 py-2 rounded-xl font-bold text-sm bg-orange-500 text-white shadow">🔀 Merge All</button>
                 </div>
-                <div class="flex gap-2">
+                <div class="flex gap-2 mb-2">
                     <select id="tracer-select" class="flex-1 px-3 py-2 border-2 border-indigo-300 rounded-xl text-sm">
                         <option value="">-- Select tracer to load --</option>
                     </select>
                     <button id="cloud-load-other" class="px-4 py-2 rounded-xl font-bold text-sm bg-cyan-500 text-white shadow">Load</button>
+                    <button id="cloud-add-other" class="px-4 py-2 rounded-xl font-bold text-sm bg-teal-500 text-white shadow">+ Add</button>
                 </div>
+                <p class="text-xs text-gray-500">Load = replace current data | Add = merge with current data</p>
             </div>
             
             <div class="border-t border-indigo-200 pt-4 mt-4">
@@ -2217,7 +2220,7 @@ async function saveToCloud() {
     }
 }
 
-async function loadFromCloud(tracerNameOverride = null) {
+async function loadFromCloud(tracerNameOverride = null, mergeMode = false) {
     const url = getCloudUrl();
     const tracerName = tracerNameOverride || getTracerName();
     
@@ -2244,9 +2247,15 @@ async function loadFromCloud(tracerNameOverride = null) {
         }
         
         if (data.allData) {
-            allData = data.allData;
+            if (mergeMode) {
+                // Merge with existing data instead of replacing
+                mergeDataInto(allData, data.allData);
+            } else {
+                // Replace current data
+                allData = data.allData;
+            }
             
-            if (data.settings) {
+            if (data.settings && !mergeMode) {
                 if (data.settings.resampleRate) {
                     resampleRate = data.settings.resampleRate;
                     document.getElementById('resample-slider').value = resampleRate;
@@ -2273,14 +2282,133 @@ async function loadFromCloud(tracerNameOverride = null) {
             rebuildTabsFromData();
             
             const savedTime = data.savedAt ? new Date(data.savedAt).toLocaleString() : 'unknown time';
-            setCloudStatus(`✅ Loaded "${tracerName}" (saved ${savedTime})`);
-            status('Loaded from cloud');
+            const action = mergeMode ? 'Added' : 'Loaded';
+            setCloudStatus(`✅ ${action} "${tracerName}" (saved ${savedTime})`);
+            status(mergeMode ? 'Data added from cloud' : 'Loaded from cloud');
         } else {
             setCloudStatus('⚠️ No data found for ' + tracerName);
         }
     } catch (e) {
         setCloudStatus('❌ Load failed: ' + e.message, true);
         status('Cloud load failed');
+    }
+}
+
+/**
+ * Merge source data into target data without replacing existing shapes
+ */
+function mergeDataInto(target, source) {
+    for (const participant of Object.keys(source)) {
+        if (!target[participant]) {
+            target[participant] = {};
+        }
+        for (const trial of Object.keys(source[participant])) {
+            if (!target[participant][trial]) {
+                target[participant][trial] = {};
+            }
+            for (const freq of Object.keys(source[participant][trial])) {
+                if (!target[participant][trial][freq]) {
+                    target[participant][trial][freq] = { red: [], blue: [], redAvg: null, blueAvg: null };
+                }
+                
+                const srcData = source[participant][trial][freq];
+                const tgtData = target[participant][trial][freq];
+                
+                // Merge red shapes (avoid exact duplicates)
+                if (srcData.red) {
+                    srcData.red.forEach(srcShape => {
+                        if (srcShape && srcShape.length > 0) {
+                            const isDuplicate = tgtData.red.some(tgtShape => 
+                                tgtShape && tgtShape.length === srcShape.length &&
+                                tgtShape.every((pt, i) => pt.x === srcShape[i].x && pt.y === srcShape[i].y)
+                            );
+                            if (!isDuplicate) {
+                                tgtData.red.push(srcShape);
+                            }
+                        }
+                    });
+                }
+                
+                // Merge blue shapes (avoid exact duplicates)
+                if (srcData.blue) {
+                    srcData.blue.forEach(srcShape => {
+                        if (srcShape && srcShape.length > 0) {
+                            const isDuplicate = tgtData.blue.some(tgtShape => 
+                                tgtShape && tgtShape.length === srcShape.length &&
+                                tgtShape.every((pt, i) => pt.x === srcShape[i].x && pt.y === srcShape[i].y)
+                            );
+                            if (!isDuplicate) {
+                                tgtData.blue.push(srcShape);
+                            }
+                        }
+                    });
+                }
+                
+                // Keep existing averages or use source averages if target has none
+                if (!tgtData.redAvg && srcData.redAvg) {
+                    tgtData.redAvg = srcData.redAvg;
+                }
+                if (!tgtData.blueAvg && srcData.blueAvg) {
+                    tgtData.blueAvg = srcData.blueAvg;
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Load all tracers' data at once (merged together)
+ */
+async function loadAllTracers() {
+    const url = getCloudUrl();
+    if (!url) {
+        setCloudStatus('❌ Enter Apps Script URL', true);
+        return;
+    }
+    
+    try {
+        setCloudStatus('☁️ Fetching tracer list...');
+        
+        // First get the list of all tracers
+        const listResponse = await fetch(`${url}?action=listTracers`);
+        const listData = await listResponse.json();
+        
+        if (!listData.tracers || listData.tracers.length === 0) {
+            setCloudStatus('⚠️ No tracers found');
+            return;
+        }
+        
+        setCloudStatus(`☁️ Loading ${listData.tracers.length} tracers...`);
+        status(`Loading ${listData.tracers.length} tracers...`);
+        
+        // Clear current data and load each tracer
+        allData = {};
+        let loadedCount = 0;
+        
+        for (const tracer of listData.tracers) {
+            try {
+                const response = await fetch(`${url}?action=loadProgress&tracerName=${encodeURIComponent(tracer.name)}`);
+                const data = await response.json();
+                
+                if (data.allData) {
+                    mergeDataInto(allData, data.allData);
+                    loadedCount++;
+                    setCloudStatus(`☁️ Loaded ${loadedCount}/${listData.tracers.length}: ${tracer.name}`);
+                }
+            } catch (e) {
+                console.warn(`Failed to load tracer ${tracer.name}:`, e);
+            }
+        }
+        
+        // Rebuild tabs
+        rebuildTabsFromData();
+        
+        setCloudStatus(`✅ Loaded all ${loadedCount} tracers' data`);
+        status(`Loaded ${loadedCount} tracers`);
+        
+    } catch (e) {
+        setCloudStatus('❌ Load all failed: ' + e.message, true);
+        status('Load all failed');
     }
 }
 
@@ -2354,7 +2482,15 @@ function loadSelectedTracer() {
     const select = document.getElementById('tracer-select');
     const tracerName = select.value;
     if (tracerName) {
-        loadFromCloud(tracerName);
+        loadFromCloud(tracerName, false); // Load mode (replace)
+    }
+}
+
+function addSelectedTracer() {
+    const select = document.getElementById('tracer-select');
+    const tracerName = select.value;
+    if (tracerName) {
+        loadFromCloud(tracerName, true); // Merge mode (add to existing)
     }
 }
 
@@ -2470,7 +2606,9 @@ function init() {
     document.getElementById('cloud-load').onclick = () => loadFromCloud();
     document.getElementById('cloud-list').onclick = listTracers;
     document.getElementById('cloud-merge').onclick = mergeAllData;
+    document.getElementById('cloud-load-all').onclick = loadAllTracers;
     document.getElementById('cloud-load-other').onclick = loadSelectedTracer;
+    document.getElementById('cloud-add-other').onclick = addSelectedTracer;
     document.getElementById('auto-cloud-toggle').onclick = toggleAutoCloudSave;
     document.getElementById('cloud-progress-close').onclick = hideCloudProgress;
     
