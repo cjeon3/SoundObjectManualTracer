@@ -38,7 +38,7 @@
         <header class="text-center mb-6">
             <h1 class="text-4xl font-extrabold text-blue-800 mb-2">Sound Object Contour Tracer</h1>
             <p class="text-xl font-semibold text-gray-600">UCI Hearing & Speech Lab</p>
-            <p class="text-sm text-gray-400 mt-1">v4.2 — Last updated: January 14, 2026</p>
+            <p class="text-sm text-gray-400 mt-1">v4.6 — Last updated: January 15, 2026</p>
         </header>
         
         <!-- Upload -->
@@ -171,45 +171,6 @@
             <!-- Frequency Composites Gallery -->
             <div id="freq-composites-gallery" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div class="border-2 border-dashed border-emerald-200 rounded-xl p-6 text-center text-gray-400 text-sm">Click "Generate Averages" to create composite images</div>
-            </div>
-        </div>
-        
-        <!-- Original Data (Ground Truth Areas) -->
-        <div class="bg-gradient-to-r from-amber-50 to-orange-50 p-6 rounded-xl shadow-lg mb-6 border-2 border-amber-200">
-            <h3 class="font-bold text-amber-800 mb-3">📊 Original Data (Ground Truth Areas)</h3>
-            <p class="text-xs text-gray-600 mb-4">Connect to your original participant data Google Sheet to get ground truth area measurements. The average traced contours will be scaled to match the average original areas per frequency/color.</p>
-            
-            <div class="mb-4">
-                <label class="block text-sm font-semibold text-gray-700 mb-1">Apps Script URL (Read-Only API)</label>
-                <input id="original-data-url" placeholder="https://script.google.com/macros/s/..." class="w-full px-3 py-2 border-2 border-amber-300 rounded-xl text-sm">
-                <p class="text-xs text-gray-500 mt-1">Deploy the read-only API script connected to your original data sheet</p>
-            </div>
-            
-            <div class="grid grid-cols-2 gap-3 mb-4">
-                <button id="original-data-connect" class="px-4 py-2 rounded-xl font-bold text-sm bg-amber-500 text-white shadow">🔗 Connect & Fetch</button>
-                <button id="original-data-skip" class="px-4 py-2 rounded-xl font-bold text-sm bg-gray-400 text-white shadow">⏭️ Skip</button>
-            </div>
-            
-            <div id="original-data-status" class="text-xs text-gray-500 mb-4"></div>
-            
-            <!-- Area Summary Table -->
-            <div id="original-data-summary" class="hidden">
-                <h4 class="font-semibold text-gray-700 mb-2">Average Areas by Frequency (Red = 0° IPD, Blue = 90° IPD)</h4>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-xs border-collapse">
-                        <thead>
-                            <tr class="bg-amber-100">
-                                <th class="border border-amber-200 px-2 py-1 text-left">Frequency</th>
-                                <th class="border border-amber-200 px-2 py-1 text-center text-red-600">Red Avg Area</th>
-                                <th class="border border-amber-200 px-2 py-1 text-center text-red-600">Red Count</th>
-                                <th class="border border-amber-200 px-2 py-1 text-center text-blue-600">Blue Avg Area</th>
-                                <th class="border border-amber-200 px-2 py-1 text-center text-blue-600">Blue Count</th>
-                            </tr>
-                        </thead>
-                        <tbody id="original-data-table"></tbody>
-                    </table>
-                </div>
-                <p class="text-xs text-gray-500 mt-2">Areas in grid squares (units²). Red average = mean area of all red shapes at that frequency. Blue average = mean area of all blue shapes. Composites are scaled to match these.</p>
             </div>
         </div>
         
@@ -1642,206 +1603,79 @@ function calculateArea(shape) {
     return Math.abs(area) / 2;
 }
 
-// ============================================
-// ORIGINAL DATA (GROUND TRUTH AREAS)
-// ============================================
-
-let originalDataConnected = false;
-let originalDataRecords = [];
-let originalAreasByFreq = {}; // { hz: { red: { areas: [], avg: 0 }, blue: { areas: [], avg: 0 } } }
-
 /**
- * Connect to the original data Google Sheet and fetch area information
- */
-async function connectOriginalData() {
-    const url = document.getElementById('original-data-url').value.trim();
-    const statusEl = document.getElementById('original-data-status');
-    
-    if (!url) {
-        statusEl.textContent = '❌ Please enter the Apps Script URL';
-        statusEl.className = 'text-xs text-red-500 mb-4';
-        return;
-    }
-    
-    try {
-        statusEl.textContent = '⏳ Connecting to original data...';
-        statusEl.className = 'text-xs text-amber-600 mb-4';
-        
-        const response = await fetch(url);
-        const data = await response.json();
-        
-        if (data.error) {
-            statusEl.textContent = `❌ ${data.error}: ${data.message || ''}`;
-            statusEl.className = 'text-xs text-red-500 mb-4';
-            return;
-        }
-        
-        if (!Array.isArray(data) || data.length === 0) {
-            statusEl.textContent = '❌ No data received from sheet';
-            statusEl.className = 'text-xs text-red-500 mb-4';
-            return;
-        }
-        
-        // Parse and store records
-        originalDataRecords = data.map(r => ({
-            participant: String(r.participant || '').trim(),
-            trial: parseInt(r.trial || r.responseNumber || 1),
-            frequency: parseFloat(r.frequency || 0),
-            color: String(r.color || '').toLowerCase().trim(),
-            area: parseFloat(r.area || 0),
-            centroidX: parseFloat(r.centroidX || 0),
-            centroidY: parseFloat(r.centroidY || 0)
-        })).filter(r => r.participant && r.frequency > 0 && r.color);
-        
-        originalDataConnected = true;
-        
-        // Calculate average areas by frequency
-        calculateOriginalAreasByFreq();
-        
-        // Update UI
-        statusEl.textContent = `✅ Connected! ${originalDataRecords.length} records loaded`;
-        statusEl.className = 'text-xs text-green-600 mb-4';
-        
-        // Show summary table
-        updateOriginalDataSummary();
-        
-        // Save URL to localStorage
-        localStorage.setItem('originalDataUrl', url);
-        
-        status(`Original data loaded: ${originalDataRecords.length} records`);
-        
-    } catch (e) {
-        statusEl.textContent = `❌ Connection failed: ${e.message}`;
-        statusEl.className = 'text-xs text-red-500 mb-4';
-        originalDataConnected = false;
-    }
-}
-
-/**
- * Skip original data connection
- */
-function skipOriginalData() {
-    const statusEl = document.getElementById('original-data-status');
-    statusEl.textContent = '⏭️ Skipped - composites will use traced areas only';
-    statusEl.className = 'text-xs text-amber-600 mb-4';
-    originalDataConnected = false;
-    document.getElementById('original-data-summary').classList.add('hidden');
-}
-
-/**
- * Calculate average areas by frequency from original data
- */
-function calculateOriginalAreasByFreq() {
-    originalAreasByFreq = {};
-    
-    for (const freq of FREQUENCIES) {
-        originalAreasByFreq[freq.hz] = {
-            red: { areas: [], avg: 0, count: 0 },
-            blue: { areas: [], avg: 0, count: 0 }
-        };
-    }
-    
-    // Collect areas by frequency and color
-    for (const record of originalDataRecords) {
-        // Find matching frequency
-        const matchedFreq = FREQUENCIES.find(f => Math.abs(f.hz - record.frequency) < 1);
-        if (!matchedFreq) continue;
-        
-        const freqData = originalAreasByFreq[matchedFreq.hz];
-        if (!freqData) continue;
-        
-        if (record.color === 'red' && record.area > 0) {
-            freqData.red.areas.push(record.area);
-        } else if (record.color === 'blue' && record.area > 0) {
-            freqData.blue.areas.push(record.area);
-        }
-    }
-    
-    // Calculate averages
-    for (const hz of Object.keys(originalAreasByFreq)) {
-        const data = originalAreasByFreq[hz];
-        if (data.red.areas.length > 0) {
-            data.red.avg = data.red.areas.reduce((a, b) => a + b, 0) / data.red.areas.length;
-            data.red.count = data.red.areas.length;
-        }
-        if (data.blue.areas.length > 0) {
-            data.blue.avg = data.blue.areas.reduce((a, b) => a + b, 0) / data.blue.areas.length;
-            data.blue.count = data.blue.areas.length;
-        }
-    }
-}
-
-/**
- * Update the original data summary table
- */
-function updateOriginalDataSummary() {
-    const summaryDiv = document.getElementById('original-data-summary');
-    const tbody = document.getElementById('original-data-table');
-    
-    tbody.innerHTML = '';
-    
-    for (const freq of FREQUENCIES) {
-        const data = originalAreasByFreq[freq.hz];
-        if (!data) continue;
-        
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td class="border border-amber-200 px-2 py-1 font-medium">${freq.hz} Hz</td>
-            <td class="border border-amber-200 px-2 py-1 text-center text-red-600">${data.red.avg > 0 ? data.red.avg.toFixed(2) : '-'}</td>
-            <td class="border border-amber-200 px-2 py-1 text-center text-red-400">${data.red.count || 0}</td>
-            <td class="border border-amber-200 px-2 py-1 text-center text-blue-600">${data.blue.avg > 0 ? data.blue.avg.toFixed(2) : '-'}</td>
-            <td class="border border-amber-200 px-2 py-1 text-center text-blue-400">${data.blue.count || 0}</td>
-        `;
-        tbody.appendChild(row);
-    }
-    
-    summaryDiv.classList.remove('hidden');
-}
-
-/**
- * Scale a shape to match a target area while preserving its centroid
- * @param {Array} shape - Array of {x, y} points
- * @param {number} targetArea - Target area in units²
- * @returns {Array} Scaled shape
- */
-function scaleShapeToArea(shape, targetArea) {
-    if (!shape || shape.length < 3 || targetArea <= 0) return shape;
-    
-    const currentArea = calculateArea(shape);
-    if (currentArea <= 0) return shape;
-    
-    // Calculate scale factor (area scales with square of linear scale)
-    const scaleFactor = Math.sqrt(targetArea / currentArea);
-    
-    // Get centroid
-    const centroid = calculateCentroid(shape);
-    
-    // Scale each point relative to centroid
-    return shape.map(pt => ({
-        x: centroid.x + (pt.x - centroid.x) * scaleFactor,
-        y: centroid.y + (pt.y - centroid.y) * scaleFactor
-    }));
-}
-
-/**
- * Load saved original data URL
- */
-function loadOriginalDataSettings() {
-    const url = localStorage.getItem('originalDataUrl');
-    if (url) {
-        document.getElementById('original-data-url').value = url;
-    }
-}
-
-/**
- * Simple average of shapes using centroid-aligned averaging
+ * Normalize contour to start at highest Y point and go counterclockwise
+ * 
  * Steps:
- * 1. Calculate centroid of each shape using uniform path resampling
- * 2. Translate all shapes so centroids are at origin
- * 3. Average the translated shapes point-by-point
- * 4. Move the result to the average centroid position
+ * 1. Find the point with the highest Y value (topmost in grid coordinates)
+ *    - If there are ties, choose the one with the highest X value
+ * 2. Rotate the contour so that point becomes index 0
+ * 3. Ensure counterclockwise winding (positive signed area)
+ * 
+ * @param {Array} shape - Array of {x, y} points
+ * @returns {Array} Normalized contour
  */
-function simpleAverageShapes(shapes, targetLength = 1000) {
+function normalizeContour(shape) {
+    if (!shape || shape.length < 3) return shape;
+    
+    // Step 1: Find the index of the highest Y point
+    // If there are ties, choose the one with highest X
+    let highestIdx = 0;
+    let highestY = shape[0].y;
+    let highestX = shape[0].x;
+    
+    for (let i = 1; i < shape.length; i++) {
+        if (shape[i].y > highestY || 
+            (shape[i].y === highestY && shape[i].x > highestX)) {
+            highestY = shape[i].y;
+            highestX = shape[i].x;
+            highestIdx = i;
+        }
+    }
+    
+    // Step 2: Rotate array so highest Y point becomes index 0
+    const rotated = [];
+    for (let i = 0; i < shape.length; i++) {
+        rotated.push(shape[(i + highestIdx) % shape.length]);
+    }
+    
+    // Step 3: Calculate signed area to determine winding direction
+    // Positive = counterclockwise, Negative = clockwise
+    let signedArea = 0;
+    for (let i = 0; i < rotated.length; i++) {
+        const j = (i + 1) % rotated.length;
+        signedArea += rotated[i].x * rotated[j].y;
+        signedArea -= rotated[j].x * rotated[i].y;
+    }
+    
+    // If clockwise (negative signed area), reverse to make counterclockwise
+    if (signedArea < 0) {
+        // Keep the first point (highest Y) at index 0, reverse the rest
+        const reversed = [rotated[0]];
+        for (let i = rotated.length - 1; i > 0; i--) {
+            reversed.push(rotated[i]);
+        }
+        return reversed;
+    }
+    
+    return rotated;
+}
+
+/**
+ * Average shapes using polar/radial coordinate averaging
+ * 
+ * Process:
+ * 1. Calculate centroid of each shape
+ * 2. Convert each shape to polar coordinates (angle -> distance from centroid)
+ * 3. Sample radial distance at uniform angles (0°, 1°, 2°, ... 359°)
+ * 4. Average the radial distances at each angle across all shapes
+ * 5. Convert back to Cartesian coordinates at the average centroid position
+ * 
+ * This method avoids point correspondence issues because we're averaging
+ * "how far the shape extends in each direction" rather than trying to
+ * match points along the perimeter.
+ */
+function simpleAverageShapes(shapes, targetLength = 360) {
     if (!shapes || shapes.length === 0) return null;
     
     // Filter out invalid shapes
@@ -1852,7 +1686,7 @@ function simpleAverageShapes(shapes, targetLength = 1000) {
         return validShapes[0];
     }
     
-    // Step 1: Calculate centroid of each shape using uniform path resampling
+    // Step 1: Calculate centroid of each shape
     const centroids = validShapes.map(shape => calculateCentroid(shape));
     
     // Calculate average centroid position
@@ -1864,61 +1698,174 @@ function simpleAverageShapes(shapes, targetLength = 1000) {
     avgCentroidX /= centroids.length;
     avgCentroidY /= centroids.length;
     
-    // Step 2: Translate all shapes so centroids are at origin, then resample
-    const centeredResampledShapes = validShapes.map((shape, idx) => {
-        const centroid = centroids[idx];
+    // Step 2 & 3: Convert each shape to radial samples (distance at each angle)
+    const numAngles = 360;
+    const radialSamples = validShapes.map((shape, shapeIdx) => {
+        const centroid = centroids[shapeIdx];
         
-        // Translate shape to origin
-        const centered = shape.map(pt => ({
-            x: pt.x - centroid.x,
-            y: pt.y - centroid.y
-        }));
+        // For each angle, find the distance to the shape boundary
+        const distances = new Array(numAngles).fill(0);
         
-        // Resample to target length
-        if (centered.length === targetLength) return centered;
-        
-        const resampled = [];
-        for (let i = 0; i < targetLength; i++) {
-            const t = i / targetLength * centered.length;
-            const idx = Math.floor(t);
-            const frac = t - idx;
-            const p1 = centered[idx % centered.length];
-            const p2 = centered[(idx + 1) % centered.length];
-            resampled.push({
-                x: p1.x + frac * (p2.x - p1.x),
-                y: p1.y + frac * (p2.y - p1.y)
-            });
+        for (let angleDeg = 0; angleDeg < numAngles; angleDeg++) {
+            const angleRad = angleDeg * Math.PI / 180;
+            const rayDirX = Math.cos(angleRad);
+            const rayDirY = Math.sin(angleRad);
+            
+            // Find intersection of ray from centroid with shape boundary
+            // Use the furthest intersection point
+            let maxDist = 0;
+            
+            for (let i = 0; i < shape.length; i++) {
+                const p1 = shape[i];
+                const p2 = shape[(i + 1) % shape.length];
+                
+                // Ray-segment intersection
+                const dist = raySegmentIntersection(
+                    centroid.x, centroid.y,
+                    rayDirX, rayDirY,
+                    p1.x, p1.y,
+                    p2.x, p2.y
+                );
+                
+                if (dist !== null && dist > maxDist) {
+                    maxDist = dist;
+                }
+            }
+            
+            distances[angleDeg] = maxDist;
         }
-        return resampled;
+        
+        return distances;
     });
     
-    // Step 3: Average the centered shapes point-by-point
-    const avgCenteredShape = [];
-    for (let i = 0; i < targetLength; i++) {
-        let sumX = 0, sumY = 0;
-        for (const shape of centeredResampledShapes) {
-            sumX += shape[i].x;
-            sumY += shape[i].y;
+    // Step 4: Average radial distances at each angle
+    const avgDistances = new Array(numAngles).fill(0);
+    for (let angleDeg = 0; angleDeg < numAngles; angleDeg++) {
+        let sum = 0;
+        for (const samples of radialSamples) {
+            sum += samples[angleDeg];
         }
-        avgCenteredShape.push({
-            x: sumX / centeredResampledShapes.length,
-            y: sumY / centeredResampledShapes.length
+        avgDistances[angleDeg] = sum / radialSamples.length;
+    }
+    
+    // Step 5: Convert back to Cartesian coordinates
+    // The radial method naturally produces counterclockwise order (0° to 359°)
+    const rawAvgShape = [];
+    for (let angleDeg = 0; angleDeg < numAngles; angleDeg++) {
+        const angleRad = angleDeg * Math.PI / 180;
+        const dist = avgDistances[angleDeg];
+        rawAvgShape.push({
+            x: avgCentroidX + dist * Math.cos(angleRad),
+            y: avgCentroidY + dist * Math.sin(angleRad)
         });
     }
     
-    // Step 4: Move the result to the average centroid position
-    const avgShape = avgCenteredShape.map(pt => ({
-        x: pt.x + avgCentroidX,
-        y: pt.y + avgCentroidY
-    }));
+    // Step 6: Normalize output to start at highest Y point (with highest X as tiebreaker)
+    // and ensure counterclockwise direction
+    const avgShape = normalizeContour(rawAvgShape);
     
-    console.log(`[Centroid-Aligned Average] ${validShapes.length} shapes averaged, avg centroid: (${avgCentroidX.toFixed(2)}, ${avgCentroidY.toFixed(2)})`);
+    console.log(`[Radial Average] ${validShapes.length} shapes averaged, avg centroid: (${avgCentroidX.toFixed(2)}, ${avgCentroidY.toFixed(2)})`);
+    
     return avgShape;
 }
 
 /**
+ * Calculate intersection of a ray with a line segment
+ * Returns distance along ray if intersection exists, null otherwise
+ * 
+ * @param {number} rayX, rayY - Ray origin
+ * @param {number} rayDirX, rayDirY - Ray direction (should be normalized)
+ * @param {number} p1x, p1y - Segment start
+ * @param {number} p2x, p2y - Segment end
+ * @returns {number|null} Distance along ray to intersection, or null
+ */
+function raySegmentIntersection(rayX, rayY, rayDirX, rayDirY, p1x, p1y, p2x, p2y) {
+    const segDirX = p2x - p1x;
+    const segDirY = p2y - p1y;
+    
+    const denom = rayDirX * segDirY - rayDirY * segDirX;
+    
+    // Parallel check
+    if (Math.abs(denom) < 1e-10) return null;
+    
+    const t = ((p1x - rayX) * segDirY - (p1y - rayY) * segDirX) / denom;
+    const u = ((p1x - rayX) * rayDirY - (p1y - rayY) * rayDirX) / denom;
+    
+    // Check if intersection is on the ray (t >= 0) and on the segment (0 <= u <= 1)
+    if (t >= 0 && u >= 0 && u <= 1) {
+        return t;
+    }
+    
+    return null;
+}
+
+/**
+ * Resample a contour to a fixed number of points using arc-length parameterization
+ * This ensures uniform spacing along the perimeter
+ */
+function resampleContour(shape, targetLength) {
+    if (!shape || shape.length < 2) return shape;
+    if (shape.length === targetLength) return shape;
+    
+    // Calculate total perimeter length
+    let totalLength = 0;
+    const segmentLengths = [];
+    
+    for (let i = 0; i < shape.length; i++) {
+        const j = (i + 1) % shape.length;
+        const dx = shape[j].x - shape[i].x;
+        const dy = shape[j].y - shape[i].y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        segmentLengths.push(len);
+        totalLength += len;
+    }
+    
+    if (totalLength < 0.0001) {
+        // Degenerate case - all points at same location
+        return Array(targetLength).fill({ x: shape[0].x, y: shape[0].y });
+    }
+    
+    // Resample at uniform intervals along the perimeter
+    const intervalLength = totalLength / targetLength;
+    const resampled = [];
+    
+    let currentDist = 0;
+    let segmentIdx = 0;
+    let distIntoSegment = 0;
+    
+    for (let i = 0; i < targetLength; i++) {
+        const targetDist = i * intervalLength;
+        
+        // Advance through segments until we find the one containing targetDist
+        while (currentDist + segmentLengths[segmentIdx] < targetDist && segmentIdx < segmentLengths.length - 1) {
+            currentDist += segmentLengths[segmentIdx];
+            segmentIdx++;
+        }
+        
+        // Interpolate within the current segment
+        const segLen = segmentLengths[segmentIdx];
+        const t = segLen > 0 ? (targetDist - currentDist) / segLen : 0;
+        const clampedT = Math.max(0, Math.min(1, t));
+        
+        const p1 = shape[segmentIdx];
+        const p2 = shape[(segmentIdx + 1) % shape.length];
+        
+        resampled.push({
+            x: p1.x + clampedT * (p2.x - p1.x),
+            y: p1.y + clampedT * (p2.y - p1.y)
+        });
+    }
+    
+    return resampled;
+}
+
+/**
  * Generate average shapes across ALL participants for each frequency
- * Uses simple direct averaging of corresponding points
+ * 
+ * Process:
+ * 1. Collect all shapes for each frequency
+ * 2. Average them using contour normalization (start at highest Y, counterclockwise)
+ * 3. Calculate area and centroid on the AVERAGE shape only
  */
 function generateFrequencyAverages() {
     const statusEl = document.getElementById('freq-avg-status');
@@ -2010,7 +1957,7 @@ function generateFrequencyAverages() {
 /**
  * Update the frequency composites gallery with generated averages
  * Shows all individual traced shapes at low opacity with average shape on top
- * If original data is connected, scales average shapes to match ground truth areas
+ * Area and centroid are calculated on the AVERAGE shape only
  */
 function updateFreqCompositesGallery() {
     const gallery = document.getElementById('freq-composites-gallery');
@@ -2029,29 +1976,17 @@ function updateFreqCompositesGallery() {
         
         hasData = true;
         
-        // Get ground truth areas if available
-        const groundTruth = originalDataConnected && originalAreasByFreq[hzKey] ? originalAreasByFreq[hzKey] : null;
+        // Calculate area and centroid on the AVERAGE shapes
+        const redAvgArea = data.redAvg ? calculateArea(data.redAvg) : 0;
+        const blueAvgArea = data.blueAvg ? calculateArea(data.blueAvg) : 0;
+        const redCentroid = data.redAvg ? calculateCentroid(data.redAvg) : null;
+        const blueCentroid = data.blueAvg ? calculateCentroid(data.blueAvg) : null;
         
-        // Scale average shapes to match ground truth areas
-        let scaledRedAvg = data.redAvg;
-        let scaledBlueAvg = data.blueAvg;
-        let redScaled = false;
-        let blueScaled = false;
-        
-        if (groundTruth) {
-            if (data.redAvg && groundTruth.red.avg > 0) {
-                scaledRedAvg = scaleShapeToArea(data.redAvg, groundTruth.red.avg);
-                redScaled = true;
-            }
-            if (data.blueAvg && groundTruth.blue.avg > 0) {
-                scaledBlueAvg = scaleShapeToArea(data.blueAvg, groundTruth.blue.avg);
-                blueScaled = true;
-            }
-        }
-        
-        // Calculate areas for display
-        const redAvgArea = scaledRedAvg ? calculateArea(scaledRedAvg) : 0;
-        const blueAvgArea = scaledBlueAvg ? calculateArea(scaledBlueAvg) : 0;
+        // Store calculated values back to data object
+        data.redArea = redAvgArea;
+        data.blueArea = blueAvgArea;
+        data.redCentroid = redCentroid;
+        data.blueCentroid = blueCentroid;
         
         // Create card
         const card = document.createElement('div');
@@ -2083,22 +2018,14 @@ function updateFreqCompositesGallery() {
         });
         
         // Draw average shapes at full opacity with thicker lines
-        // Use scaled versions if ground truth is available
-        let redCentroid = null;
-        let blueCentroid = null;
-        
-        if (scaledRedAvg) {
-            drawCompositeShape(cx, scaledRedAvg, '#991b1b', scale, 1, 3);
-            // Calculate geometric centroid of the averaged shape
-            redCentroid = calculateCentroid(scaledRedAvg);
+        if (data.redAvg) {
+            drawCompositeShape(cx, data.redAvg, '#991b1b', scale, 1, 3);
         }
-        if (scaledBlueAvg) {
-            drawCompositeShape(cx, scaledBlueAvg, '#1e3a8a', scale, 1, 3);
-            // Calculate geometric centroid of the averaged shape
-            blueCentroid = calculateCentroid(scaledBlueAvg);
+        if (data.blueAvg) {
+            drawCompositeShape(cx, data.blueAvg, '#1e3a8a', scale, 1, 3);
         }
         
-        // Draw centroid markers (+ signs)
+        // Draw centroid markers (+ signs) for average shapes
         if (redCentroid) {
             drawCentroidMarker(cx, redCentroid, '#991b1b', scale);
         }
@@ -2108,28 +2035,18 @@ function updateFreqCompositesGallery() {
         
         card.appendChild(cv);
         
-        // Stats - include centroid coordinates
+        // Stats - show area and centroid of AVERAGE shapes
         const statsDiv = document.createElement('div');
         statsDiv.className = 'text-xs space-y-1';
         
-        let redAreaText = data.redShapes.length > 0 ? `traced: ${data.redArea.toFixed(2)}` : '';
-        let blueAreaText = data.blueShapes.length > 0 ? `traced: ${data.blueArea.toFixed(2)}` : '';
+        const redAreaText = data.redAvg ? `area: ${redAvgArea.toFixed(2)}` : '';
+        const blueAreaText = data.blueAvg ? `area: ${blueAvgArea.toFixed(2)}` : '';
         
-        if (groundTruth) {
-            if (redScaled && groundTruth.red.avg > 0) {
-                redAreaText += ` → scaled: ${redAvgArea.toFixed(2)} (target: ${groundTruth.red.avg.toFixed(2)})`;
-            }
-            if (blueScaled && groundTruth.blue.avg > 0) {
-                blueAreaText += ` → scaled: ${blueAvgArea.toFixed(2)} (target: ${groundTruth.blue.avg.toFixed(2)})`;
-            }
-        }
-        
-        // Add centroid info
         const redCentroidText = redCentroid ? ` | centroid: (${redCentroid.x.toFixed(2)}, ${redCentroid.y.toFixed(2)})` : '';
         const blueCentroidText = blueCentroid ? ` | centroid: (${blueCentroid.x.toFixed(2)}, ${blueCentroid.y.toFixed(2)})` : '';
         
         statsDiv.innerHTML = `
-            <p class="font-bold text-emerald-700">${hzKey} Hz ${groundTruth ? '📊' : ''}</p>
+            <p class="font-bold text-emerald-700">${hzKey} Hz</p>
             <p class="text-red-600">Red: ${data.redShapes.length} shapes${redAreaText ? ', ' + redAreaText : ''}${redCentroidText}</p>
             <p class="text-blue-600">Blue: ${data.blueShapes.length} shapes${blueAreaText ? ', ' + blueAreaText : ''}${blueCentroidText}</p>
         `;
@@ -3196,13 +3113,8 @@ function init() {
     document.getElementById('auto-cloud-toggle').onclick = toggleAutoCloudSave;
     document.getElementById('cloud-progress-close').onclick = hideCloudProgress;
     
-    // Original data (ground truth areas)
-    document.getElementById('original-data-connect').onclick = connectOriginalData;
-    document.getElementById('original-data-skip').onclick = skipOriginalData;
-    
     // Load saved settings
     loadCloudSettings();
-    loadOriginalDataSettings();
     
     drawGrid();
 }
