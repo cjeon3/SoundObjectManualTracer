@@ -2,7 +2,7 @@
 
 UCI Hearing & Speech Lab
 
-Version 5.0 | February 2, 2026
+Version 5.1 | February 3, 2026
 
 ---
 
@@ -17,12 +17,13 @@ Version 5.0 | February 2, 2026
 7. [Cross-Participant Shape Averaging](#cross-participant-shape-averaging)
 8. [Centroid Calculation](#centroid-calculation)
 9. [Area Calculation](#area-calculation)
-10. [Quality Assessment](#quality-assessment)
-11. [Data Export and Persistence](#data-export-and-persistence)
-12. [Verification Test Suite](#verification-test-suite)
-13. [Application Settings](#application-settings)
-14. [Abandoned Approaches](#abandoned-approaches)
-15. [Version History](#version-history)
+10. [Error Reduction and Data Integrity](#error-reduction-and-data-integrity)
+11. [Quality Assessment](#quality-assessment)
+12. [Data Export and Persistence](#data-export-and-persistence)
+13. [Verification Test Suite](#verification-test-suite)
+14. [Application Settings](#application-settings)
+15. [Abandoned Approaches](#abandoned-approaches)
+16. [Version History](#version-history)
 
 ---
 
@@ -39,13 +40,12 @@ The tool was developed as an alternative to automated contour extraction from PN
 The application implements a six-stage pipeline:
 
 ```
-INPUT         TRACE         NORMALIZE       AVERAGE         MEASURE         OUTPUT
-  |             |              |               |               |              |
-ZIP/PNG  ->  Manual     ->  Reorder &   ->  Radial      ->  Shoelace   ->  CSV/JSON/
-upload       drawing        enforce         polar            area &         PNG/Cloud
-             on canvas      CCW from        averaging        resampled
-                            highest Y       at mean          centroid
-                                            centroid
+INPUT         TRACE         NORMALIZE       AVERAGE           MEASURE         OUTPUT
+  |             |              |               |                 |              |
+ZIP/PNG  ->  Manual     ->  Reorder &   ->  Area-weighted  ->  Shoelace   ->  CSV/JSON/
+upload       drawing        enforce         radial polar        area &         PNG ZIP/
+             on canvas      CCW from        averaging at        resampled      Cloud
+                            highest Y       mean centroid       centroid
 ```
 
 Stage 1, Data Input: ZIP archives (including nested ZIPs) or individual PNG files are loaded. Folder structure encodes participant identity and trial order.
@@ -54,11 +54,11 @@ Stage 2, Manual Tracing: The researcher traces red and blue contours on a canvas
 
 Stage 3, Contour Normalization: Each traced contour is reordered so that index 0 corresponds to the highest-Y point (with highest-X as tiebreaker), and the winding direction is enforced as counterclockwise. This guarantees a canonical representation regardless of how the researcher drew the trace.
 
-Stage 4, Cross-Participant Averaging: All traced shapes for a given frequency and color are averaged using radial (polar) coordinate averaging. Each shape is converted to a radial distance function relative to its centroid, these distance functions are averaged angle by angle, and the result is reconstructed at the mean centroid position.
+Stage 4, Cross-Participant Averaging: All traced shapes for a given frequency and color are averaged using area-weighted radial (polar) coordinate averaging. Each shape is converted to a radial distance function relative to its centroid. The radial distances at each angle are averaged with weights proportional to each shape's area, so that larger shapes exert proportionally more influence on the average contour. The result is reconstructed at the unweighted mean centroid position.
 
 Stage 5, Geometric Measurement: Area and centroid are computed on the average shape only. Area uses the shoelace formula. Centroid uses uniform path resampling followed by arithmetic mean.
 
-Stage 6, Output: Results are exported as CSV (all coordinates), JSON (full state including settings), PNG composites (per-frequency visualizations), or persisted to Google Sheets for multi-researcher collaboration.
+Stage 6, Output: Results are exported as CSV (all coordinates), JSON (full state including settings), PNG composites packaged into a ZIP file (per-frequency visualizations with resampled traced contours as background), or persisted to Google Sheets for multi-researcher collaboration.
 
 ---
 
@@ -116,15 +116,6 @@ Individual PNG files can be loaded directly. Previously exported JSON files can 
 ---
 
 ## 5. Manual Tracing
-
-Several QOL changes were added to improve the manual tracing experience without impacting data integrity:
-
-  Pointer Events API replaces the dual mouse+touch listener setup. pointerdown/pointermove/pointerup/pointerleave/pointercancel handle mouse, touch, and stylus through a single code path. The getCoalescedEvents() call recovers intermediate positions that the browser batched between animation frames, giving denser positional sampling without any synthesized or interpolated points. These are real hardware samples that were previously discarded.
-  3-point moving average smoothing filters each incoming point through a sliding window of the last 3 raw positions. At typical stylus event rates (120-240 Hz), the window spans roughly 12-25ms of input. The positional shift is sub-pixel in magnitude. This is negligible relative to the downstream resample() which completely re-interpolates the path at 1000 uniform arc-length intervals. The smoothed points are what get stored in curPath, so the visual stroke and stored data are identical.
-  Incremental segment rendering draws only the new line segment on each event (beginPath + moveTo + lineTo + stroke), rather than accumulating a single growing path and re-stroking it from the beginning every frame. The old approach had O(n) rendering cost per event where n is the total path length. The new approach is O(1) per event. On long strokes this eliminates the progressive lag that was most noticeable toward the end of a trace.
-  Pointer ID tracking prevents multi-touch interference. If a second finger touches the screen while a stylus stroke is active, the second pointer's events are ignored. Only the pointer that initiated the stroke can move or end it.
-  will-change: transform on the canvas CSS hints the browser compositor to promote the canvas to its own GPU layer, reducing repaint cost on tablet hardware.
-  None of these changes alter the data pipeline. curPath still collects canvas-pixel coordinates during the stroke, canvasToUnit converts them to grid coordinates, and resample re-interpolates to 1000 uniform points. The stored contours pass through exactly the same functions as before.
 
 ### Point Capture
 
@@ -196,13 +187,25 @@ Step 2, Radial Conversion: For each shape, a ray is cast from the centroid at ea
 
 Step 3, Mean Centroid: The average centroid position is computed as the arithmetic mean of all input shape centroids. This preserves the average spatial position of the original drawings, which is meaningful experimental data (it reflects where participants perceived the sound object to be).
 
-Step 4, Distance Averaging: At each angle, the radial distances from all input shapes are averaged:
+Step 4, Distance Averaging: At each angle, the radial distances from all input shapes are combined using area-weighted averaging. Each shape's shoelace area is computed and normalized so that the weights sum to 1. The weighted average at each angle is:
 
 ```
-d_avg(angle_k) = (1 / M) * sum_{j=1}^{M} d_j(angle_k)
+w_j = Area_j / sum_{j=1}^{M} Area_j
+
+d_avg(angle_k) = sum_{j=1}^{M} w_j * d_j(angle_k)
 ```
 
-where M is the number of input shapes and d_j(angle_k) is the radial distance for shape j at angle k.
+where M is the number of input shapes, w_j is the normalized area weight for shape j, and d_j(angle_k) is the radial distance for shape j at angle k. If the total area across all shapes is effectively zero (below 1e-12), the algorithm falls back to equal weights as a safeguard against division by zero.
+
+### Why Area-Weighted Rather Than Equal-Weight Averaging
+
+Without area weighting, every traced shape contributes equally to the average contour regardless of how large it is. A participant who drew a very small shape and one who drew a very large shape would each pull the average contour by the same amount at every angle. This is a defensible default, but it means that size information is partially discarded during averaging.
+
+Area weighting preserves the proportional influence of each shape's spatial extent. A large shape, which encloses more area and therefore represents a larger perceived sound object, contributes more to the average than a small shape at the same frequency. The effect is that the average contour is pulled outward more by large drawings and less by small ones, producing a result that better reflects the distribution of perceived sizes across participants.
+
+The centroid of the average shape remains an unweighted geometric mean of individual centroids, so the spatial position of the average is not distorted by area differences.
+
+One consideration is that area weighting amplifies the influence of anomalously large shapes (for example, a tracing error that produced an oversized contour). The weights are logged to the console for each averaging operation, allowing the researcher to identify any single shape that dominates the average.
 
 Step 5, Cartesian Reconstruction: The averaged radial distances are converted back to Cartesian coordinates, positioned at the mean centroid:
 
@@ -247,10 +250,6 @@ Radial averaging was chosen after evaluating and discarding two other approaches
 5. It preserves average size. If all inputs have area A, the output area is approximately A (up to discretization effects from angular sampling).
 
 The primary limitation of radial averaging is its assumption that the shape is star-convex with respect to its centroid: every ray from the centroid must intersect the boundary. For highly concave or multi-lobed shapes, some rays may miss the boundary entirely (yielding distance 0 at that angle). In practice, the hand-drawn shapes in this study are sufficiently convex that this limitation does not arise.
-
-NOTE: The radial averaging function (simpleAverageShapes) does not use the traced points directly as its output. It casts rays from each shape's centroid at radialResolution uniformly spaced angles (default 720), finds the intersection distances, averages those distances, and reconstructs the result as 720 new Cartesian points. The original traced point count and spacing are irrelevant to the output.
-
-So if a contour was traced with 1000 resampled points, the averaging pipeline produces a 720-point (or whatever the slider is set to) radial reconstruction. The manual trace is only used as the boundary that the rays intersect against.
 
 ---
 
@@ -324,7 +323,77 @@ Area is computed on the average shape only, not on individual traced contours. I
 
 ---
 
-## 10. Quality Assessment
+## 10. Error Reduction and Data Integrity
+
+This section summarizes the design decisions made throughout the application to reduce measurement error, prevent data cancellation, and ensure accurate formation of average shapes. Each subsection describes the problem that motivated the change, the solution implemented, and the justification for that solution.
+
+### 10.1 Contour Normalization Prevents Winding-Direction Cancellation
+
+Problem: When participants or researchers trace shapes, they naturally draw in different directions. One researcher might trace clockwise, another counterclockwise. If these shapes were averaged using a method that depends on point order (such as point-by-point averaging), shapes traced in opposite directions could destructively cancel, producing an average with near-zero area even though all inputs were large shapes.
+
+Solution: The normalizeContour function enforces a canonical representation for every traced contour. It rotates the point array so that index 0 is the highest-Y point (with highest-X as tiebreaker for shapes that have a flat top edge), then checks the signed area via the shoelace formula. If the signed area is negative (clockwise), the point order is reversed while keeping the start point fixed. Every shape in the dataset therefore shares the same traversal direction and reference point.
+
+Justification: This is verified by Test 4 in the verification suite. Two identical 2x2 squares placed at opposite positions with opposite winding directions produce a correct average (area approximately 3.89, centroid near origin) rather than cancelling toward zero. The slight area reduction from the expected 4.0 is due to angular discretization in the radial raycasting, not from cancellation.
+
+### 10.2 Radial Averaging Eliminates Point Correspondence Artifacts
+
+Problem: Shapes drawn by different participants have different starting points, different point densities, and different traversal patterns. Any averaging method that depends on matching points by index assumes that point N in one shape "corresponds to" point N in another. This assumption fails for cross-participant data because two shapes may start at different locations, be drawn in different orders, and have fundamentally different proportions. The result of index-based averaging is tangled, self-intersecting contours that do not represent any meaningful shape.
+
+Solution: The application uses radial (polar) coordinate averaging. Each shape is converted to a radial distance function by casting rays from the centroid at uniform angular intervals (default 720 angles, or 0.5-degree spacing). The question changes from "which points correspond" to "how far does each shape extend in each direction from its center." This is well-defined for any closed shape and does not depend on point ordering or starting position.
+
+Justification: Radial averaging was adopted in v4.8 after two earlier approaches (simple point averaging in v1.x and centroid-aligned point averaging in v3.x) both produced self-intersecting outputs. The radial method cannot produce self-intersections because the output is a single-valued function of angle relative to the centroid, which by definition traces a simple closed curve. It is also inherently direction-agnostic: a shape drawn clockwise defines the same boundary as one drawn counterclockwise, and raycasting finds the same edges either way.
+
+### 10.3 Defensive Counterclockwise Verification After Averaging
+
+Problem: After the radial averaging and normalization steps, a numerical edge case could theoretically produce a clockwise output. While the radial-to-Cartesian reconstruction naturally produces counterclockwise point order (because angles are sampled from 0 to 2*pi), and the normalization step enforces counterclockwise winding, belt-and-suspenders redundancy is appropriate for data integrity.
+
+Solution: Step 7 of the averaging function recalculates the signed area of the final output shape. If the signed area is negative (clockwise), the shape is reversed. A console warning is logged if this correction is ever triggered.
+
+Justification: In practice this check has never been triggered, but it costs negligible computation and prevents silent data corruption in edge cases. It was added in v4.9.
+
+### 10.4 Uniform Path Resampling for Centroid Calculation
+
+Problem: When a researcher traces a contour by hand, the captured points are not uniformly distributed. Regions drawn slowly produce many closely spaced points, while regions drawn quickly produce fewer widely spaced points. Computing the centroid as a simple mean of these raw points biases the result toward wherever the researcher happened to slow down, hesitate, or change direction. This drawing-speed bias is an artifact of the input device, not a geometric property of the shape.
+
+Solution: The calculateCentroid function resamples the contour at equal arc-length intervals before computing the arithmetic mean. The number of resample points scales with path length (at least 100, or one per 0.1 grid units of path length), ensuring adequate density for shapes of any size.
+
+Justification: Consider a roughly circular contour where the researcher drew the left half slowly (producing 800 raw points) and the right half quickly (producing 200 raw points). Without resampling, the centroid would be biased leftward by roughly 0.8 units. With uniform resampling, both halves contribute equally, and the centroid falls at the geometric center of the path regardless of drawing speed.
+
+### 10.5 Area-Weighted Contour Averaging
+
+Problem: With equal-weight averaging, every traced shape influences the average contour equally, regardless of size. A participant who drew a tiny shape and one who drew a large shape contribute identically to the radial distance at every angle. This means the average contour does not fully reflect the distribution of perceived sizes across participants.
+
+Solution: Each shape's radial distances are weighted by the shape's area (computed via the shoelace formula), normalized so all weights sum to 1. Larger shapes pull the average contour outward more than smaller shapes. The centroid remains an unweighted geometric mean of individual centroids, so spatial position is not affected by area differences.
+
+Justification: Area weighting causes the average contour to more faithfully represent the spatial extent reported by participants. The weights are logged to the console for every averaging operation, which allows the researcher to identify whether any single anomalous shape is dominating the average. A degenerate-case fallback assigns equal weights if total area falls below 1e-12.
+
+### 10.6 Removal of Brush-Width Area Correction
+
+Problem: In versions 4.3 through 4.9, area was computed as shoelace area plus (perimeter times brush_radius), approximating the visual area of the on-screen brush stroke. While this was a reasonable measure of the rendered area of an individual drawing, it was not appropriate for averaged contours. The averaged contour is a mathematical construction that is never rendered with a brush. Including a brush-width correction made the area dependent on a display parameter (brush size) that has nothing to do with the participant's perceived sound object.
+
+Solution: In v5.0, the brush-width correction was removed. All area values now reflect pure polygon geometry via the shoelace formula. The functions calculatePerimeter, getBrushRadiusInGridUnits, and the brush-corrected calculateArea were deleted.
+
+Justification: A 2x2 grid-unit square now reports area 4.0, which is the mathematically correct area of the polygon. The previous corrected value would have been approximately 4.0 + (8.0 * 0.1) = 4.8, where 8.0 is the perimeter and 0.1 is the brush radius in grid units. The correction term varied with brush size and perimeter, introducing a systematic bias that scaled with shape complexity.
+
+### 10.7 Invalid Shape and Centroid Filtering
+
+Problem: The dataset may contain degenerate inputs: shapes with fewer than 3 points (which cannot form a polygon), shapes where all points coincide at a single location (zero-length path), or shapes whose centroids are numerically invalid (NaN or Infinity, which can occur if the path length is zero and a division by zero propagates).
+
+Solution: The averaging function applies two filters. First, shapes with fewer than 3 points are excluded. Second, any shape whose centroid contains non-finite coordinates is excluded. Both filters run before any averaging takes place, so degenerate inputs cannot corrupt the result.
+
+Justification: Without these guards, a single degenerate shape could produce NaN values that propagate through the entire averaging computation, silently corrupting all radial distances at every angle.
+
+### 10.8 Resampled Contours in Exported PNG Images
+
+Problem: The original export function drew the raw participant PNG images as background behind the average shapes. While this showed the original drawings, it also displayed all the visual artifacts of the original drawing tool: variable brush stroke width, inconsistent opacity, anti-aliasing halos, and grid-line bleed-through. These artifacts are properties of the drawing tool, not of the participants' percepts, and they obscure the actual contour shapes in the exported image.
+
+Solution: The export function now draws each individual traced contour after resampling to 1000 uniformly spaced points. Every shape is rendered with identical stroke width and opacity, eliminating the drawing-speed artifacts present in the raw traces. The shapes are geometrically identical to the originals because resampling only redistributes point spacing along the existing path without altering the contour itself.
+
+Justification: Resampling to 1000 points is well above the Nyquist threshold for the level of detail in these hand-drawn contours. The uniform rendering makes it possible to visually distinguish individual participant shapes in the background of the exported composite, which was difficult when the originals had variable opacity and stroke width. The exported PNGs are packaged into a single ZIP file for convenience.
+
+---
+
+## 11. Quality Assessment
 
 ### Image Overlap Statistics
 
@@ -344,7 +413,7 @@ Purple pixels (roughly equal red and blue components) are counted as both red an
 
 ---
 
-## 11. Data Export and Persistence
+## 12. Data Export and Persistence
 
 ### CSV Export
 
@@ -362,7 +431,7 @@ Exports the complete application state including all traced data, settings (resa
 
 ### PNG Export
 
-Composite images can be exported per frequency. Each composite shows all individual traced contours at reduced opacity with the average shape drawn prominently on top. A grid and reference circle are included for spatial reference. Area and centroid statistics are overlaid as text.
+Composite images are exported per frequency, packaged into a single ZIP file. Each composite shows all individual traced contours at reduced opacity (resampled to 1000 uniformly spaced points for consistent stroke rendering), with the average shape drawn prominently on top. A grid, reference circle, and centroid crosshair markers are included for spatial reference. Area, centroid, and centroid shift statistics are overlaid as text. The visual parameters (colors, line widths, opacity) match the in-app gallery composites, scaled proportionally for the higher-resolution export canvas.
 
 ### Google Sheets Cloud Collaboration
 
@@ -378,7 +447,7 @@ Each researcher identifies themselves by a tracer name, and the cloud backend st
 
 ---
 
-## 12. Verification Test Suite
+## 13. Verification Test Suite
 
 The application includes four automated tests (accessible via the browser console as `runContourTests()`) that verify the correctness of the normalization and averaging pipeline.
 
@@ -408,7 +477,7 @@ A 2x2 square centered at (1, 1) is drawn clockwise. A 2x2 square centered at (-1
 
 ---
 
-## 13. Application Settings
+## 14. Application Settings
 
 | Setting | Default | Range | Description |
 |---|---|---|---|
@@ -424,7 +493,7 @@ All settings are included in JSON exports and cloud saves, allowing sessions to 
 
 ---
 
-## 14. Abandoned Approaches
+## 15. Abandoned Approaches
 
 Three averaging methods were implemented and subsequently replaced due to unacceptable artifacts.
 
@@ -441,3 +510,29 @@ An angular alignment step was added (rotating point indices so index 0 correspon
 ### Brush-Width Area Correction (v4.3 - v4.9)
 
 Area was calculated as shoelace area plus (perimeter * brush_radius), approximating the visual area of the brush stroke. This was appropriate when measuring individual drawn shapes rendered on screen, but it was not appropriate for averaged contours, which are mathematical constructions with no brush rendering. The correction was removed in v5.0 so that area values reflect pure polygon geometry.
+
+---
+
+## 16. Version History
+
+| Version | Date | Changes |
+|---|---|---|
+| v5.1 | Feb 3, 2026 | Area-weighted contour averaging (larger shapes contribute proportionally more). Centroid shift analysis panel comparing mean-of-centroids vs centroid-of-average methods. PNG export now uses resampled traced contours (1000 points) instead of original participant PNGs, packaged into ZIP. Added Section 10 documenting error reduction and data integrity measures. |
+| v5.0 | Feb 2, 2026 | Removed brush-width area correction; all area calculations now use shoelace formula only. Removed calculatePerimeter, getBrushRadiusInGridUnits, and brush-corrected calculateArea functions. |
+| v4.9 | Feb 2, 2026 | Removed stale resampleRate arguments from averaging calls. Added defensive CCW verification (Step 7) after normalization. Added Tests 3 and 4 to the verification suite. |
+| v4.8 | Jan 15, 2026 | Replaced centroid-aligned point averaging with radial (polar) averaging. Added Tests 1 and 2. Implemented ray-segment intersection for raycasting. |
+| v4.3 | Jan 15, 2026 | Changed opacity defaults (image: 50 to 33%, shape: 30 to 67%). Fixed image drawing to use explicit canvas dimensions matching the original drawing app. Added tablet/stylus optimization. |
+| v4.2 | Jan 15, 2026 | Enhanced tracing statistics with image overlap calculation. Added cloud save progress indicators. |
+| v4.1 | Jan 15, 2026 | Counterclockwise ordering from highest Y point. Area and centroid calculated on averaged shapes only (not individual traces). Removed Google Sheets ground-truth scaling integration. |
+| v3.0 | Jan 2026 | Google Sheets cloud collaboration. Nested ZIP support. Multi-trial tabbed interface. Centroid-aligned averaging with angular alignment. |
+| v2.x | Dec 2025 | Initial tracing tool with simple point averaging, basic CSV/JSON export. |
+
+---
+
+## References
+
+The shoelace formula for polygon area is attributed to C. F. Gauss and described in Braden, B. (1986). "The Surveyor's Area Formula." The College Mathematics Journal, 17(4), 326-337.
+
+Uniform path resampling for centroid computation follows standard arc-length parameterization as described in computational geometry literature. See de Berg, M., Cheong, O., van Kreveld, M., and Overmars, M. (2008). Computational Geometry: Algorithms and Applications, 3rd ed. Springer.
+
+Ray-segment intersection uses the parametric formulation common in computer graphics. See Foley, J. D., van Dam, A., Feiner, S. K., and Hughes, J. F. (1990). Computer Graphics: Principles and Practice, 2nd ed. Addison-Wesley.
