@@ -1,720 +1,430 @@
-# Sound Object Contour Tracer: Development Methodology and Technical Documentation
+# Sound Object Contour Tracer: Technical Documentation
+
+UCI Hearing & Speech Lab
+
+Version 5.0 | February 2, 2026
 
 ---
 
-## Processing Pipeline Overview
+## Table of Contents
 
-The Sound Object Contour Tracer implements a multi-stage pipeline for digitizing and analyzing participant drawings from auditory spatial perception experiments:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           DATA INPUT STAGE                                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  ZIP Upload → Nested ZIP Extraction → Folder Pattern Parsing                │
-│      ↓              ↓                       ↓                               │
-│  PNG Files    Trial Assignment        Participant ID                        │
-│      └──────────────┴───────────────────────┘                               │
-│                      ↓                                                      │
-│              Image Loading & Tab Generation                                 │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          MANUAL TRACING STAGE                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  Canvas Drawing → Point Capture → Coordinate Transform → Path Resampling   │
-│       ↓               ↓                  ↓                    ↓             │
-│  Mouse/Touch     Raw Pixels      Canvas→Unit Space      Uniform Density    │
-│  Events          (1000×1000)     (-10 to +10)           (configurable)     │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         QUALITY ASSESSMENT STAGE                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  Image Pixel Analysis → Color Detection → Overlap Calculation               │
-│         ↓                     ↓                   ↓                         │
-│  Original Drawing      Red/Blue/Purple      Percentage of traced           │
-│  RGB Values            Classification       points on colored pixels       │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      CROSS-PARTICIPANT AVERAGING STAGE                      │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  Shape Collection → Centroid Calculation → Centroid Alignment → Averaging  │
-│        ↓                    ↓                     ↓                ↓        │
-│  All shapes at       Uniform path            Translate to       Point-by-  │
-│  frequency X         resampling              origin             point mean │
-│                            ↓                                        ↓      │
-│                   Eliminates drawing                          Translate to │
-│                   speed bias                                  mean centroid│
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      GROUND TRUTH SCALING STAGE (Optional)                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  Original Data Fetch → Area Extraction → Scale Factor → Shape Scaling      │
-│         ↓                    ↓                ↓               ↓             │
-│  Google Sheets API    Average area per   √(target/current)  Preserve       │
-│  Connection           frequency/color                       centroid       │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           OUTPUT STAGE                                      │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  Composite Gallery → PNG Export → CSV/JSON Export → Cloud Persistence      │
-│        ↓                 ↓              ↓                   ↓               │
-│  Visual preview     Per-frequency   All coordinates    Google Sheets       │
-│  with statistics    images          with metadata      collaboration       │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+1. [Overview](#overview)
+2. [Processing Pipeline](#processing-pipeline)
+3. [Coordinate System](#coordinate-system)
+4. [Data Input](#data-input)
+5. [Manual Tracing](#manual-tracing)
+6. [Contour Normalization](#contour-normalization)
+7. [Cross-Participant Shape Averaging](#cross-participant-shape-averaging)
+8. [Centroid Calculation](#centroid-calculation)
+9. [Area Calculation](#area-calculation)
+10. [Quality Assessment](#quality-assessment)
+11. [Data Export and Persistence](#data-export-and-persistence)
+12. [Verification Test Suite](#verification-test-suite)
+13. [Application Settings](#application-settings)
+14. [Abandoned Approaches](#abandoned-approaches)
+15. [Version History](#version-history)
 
 ---
 
-## Introduction
+## 1. Overview
 
-This document describes the development and implementation of the Sound Object Contour Tracer, a web-based application designed for manual digitization of participant drawings from auditory spatial perception experiments. The application was developed as an alternative to automated contour extraction methods, which encountered difficulties with inconsistent color detection across drawing styles, boundary-grid disambiguation, and variable brush stroke characteristics affecting geometric calculations.
+The Sound Object Contour Tracer is a browser-based application for manual digitization of participant drawings from auditory spatial perception experiments. Participants in the Sound Object Phenomenon study draw shapes representing how they perceive pure-tone stimuli presented under two interaural phase conditions: in-phase (red) and out-of-phase (blue). The application enables researchers to trace these drawings, compute cross-participant average contours at each stimulus frequency, and extract geometric measurements (area, centroid) from the averaged shapes.
 
-The following sections detail the computational methods employed, the rationale for design decisions, approaches that were attempted and subsequently abandoned, and the final implementations retained in the current version.
-
----
-
-## Coordinate System Specification
-
-The coordinate system replicates the drawing interface used by participants during data collection. The canvas measures 1000 by 1000 pixels, representing a unit space ranging from negative ten to positive ten on both axes. The scale factor of 50 pixels per unit positions the origin at pixel coordinates (500, 500). A reference circle of three-unit radius (150 pixels) indicates the standardized head position representation.
-
-Coordinate transformations between canvas pixels and unit space are computed as follows:
-
-```javascript
-const CANVAS_SIZE = 1000;
-const UNIT_RANGE = 10;
-const SCALE_FACTOR = CANVAS_SIZE / (UNIT_RANGE * 2); // = 50
-const CENTER = CANVAS_SIZE / 2; // = 500
-
-function canvasToUnit(x, y) {
-    return {
-        x: (x - CENTER) / SCALE_FACTOR,
-        y: (CENTER - y) / SCALE_FACTOR
-    };
-}
-
-function unitToCanvas(x, y) {
-    return {
-        x: x * SCALE_FACTOR + CENTER,
-        y: CENTER - y * SCALE_FACTOR
-    };
-}
-```
-
-The y-axis inversion accounts for the difference between canvas coordinates (origin at top-left, y increasing downward) and the standard Cartesian system (origin at center, y increasing upward).
+The tool was developed as an alternative to automated contour extraction from PNG images, which encountered difficulties with inconsistent color detection across drawing styles, boundary-grid disambiguation, and variable brush stroke characteristics.
 
 ---
 
-## File Processing and Trial Assignment
+## 2. Processing Pipeline
 
-### Initial Approaches
-
-The first implementation attempted direct path parsing from ZIP archive entries, assuming a structure of `ParticipantName/TrialNumber/filename.png`. This approach failed because the archived data contained nested ZIP files and folder naming conventions that did not conform to the expected pattern.
-
-A second approach employed regular expressions to identify numeric folder names and map them to trial numbers. This method partially succeeded but failed to parse folder names such as `Jiaxin L_11_Drawings 2`, where the suffix `_Drawings 2` was incorrectly incorporated into the trial detection logic.
-
-### Final Implementation
-
-The production version uses a multi-pattern parser with the following regular expression:
+The application implements a six-stage pipeline:
 
 ```
-^(.+?)_(\d+)(?:_.*)?$
+INPUT         TRACE         NORMALIZE       AVERAGE         MEASURE         OUTPUT
+  |             |              |               |               |              |
+ZIP/PNG  ->  Manual     ->  Reorder &   ->  Radial      ->  Shoelace   ->  CSV/JSON/
+upload       drawing        enforce         polar            area &         PNG/Cloud
+             on canvas      CCW from        averaging        resampled
+                            highest Y       at mean          centroid
+                                            centroid
 ```
 
-This pattern captures the participant name through a non-greedy match before the first underscore, extracts the folder number from digits following the first underscore, and discards any content following a second underscore.
+Stage 1, Data Input: ZIP archives (including nested ZIPs) or individual PNG files are loaded. Folder structure encodes participant identity and trial order.
 
-Trial assignment proceeds by sorting folder numbers in ascending order and mapping them sequentially to trial identifiers. For example, folders numbered 3, 5, and 11 are assigned to Trial 1, Trial 2, and Trial 3 respectively. This approach accommodates the laboratory's data collection convention, where folder numbers represent session order rather than explicit trial labels.
+Stage 2, Manual Tracing: The researcher traces red and blue contours on a canvas overlaid on the participant's original drawing. Points are captured from mouse or stylus input and resampled to uniform density along the path.
 
-The filename parser extracts frequency information from patterns such as `Jiaxin L_62.5Hz_100dB.png`, where the frequency value (62.5) is retained and the loudness specification (100dB) is recorded but not used for primary categorization.
+Stage 3, Contour Normalization: Each traced contour is reordered so that index 0 corresponds to the highest-Y point (with highest-X as tiebreaker), and the winding direction is enforced as counterclockwise. This guarantees a canonical representation regardless of how the researcher drew the trace.
 
-Supported frequencies are defined as:
+Stage 4, Cross-Participant Averaging: All traced shapes for a given frequency and color are averaged using radial (polar) coordinate averaging. Each shape is converted to a radial distance function relative to its centroid, these distance functions are averaged angle by angle, and the result is reconstructed at the mean centroid position.
 
-```javascript
-const FREQUENCIES = [
-    { hz: 62.5, db: 100 },
-    { hz: 125, db: 90 },
-    { hz: 250, db: 85 },
-    { hz: 500, db: 80 },
-    { hz: 1000, db: 80 },
-    { hz: 2000, db: 80 }
-];
-```
+Stage 5, Geometric Measurement: Area and centroid are computed on the average shape only. Area uses the shoelace formula. Centroid uses uniform path resampling followed by arithmetic mean.
+
+Stage 6, Output: Results are exported as CSV (all coordinates), JSON (full state including settings), PNG composites (per-frequency visualizations), or persisted to Google Sheets for multi-researcher collaboration.
 
 ---
 
-## Path Resampling
+## 3. Coordinate System
 
-When participants draw on a digital canvas, the application captures discrete coordinate points along the stroke path. The density of these points varies with drawing speed: slow drawing produces many closely spaced points, while rapid drawing produces fewer widely spaced points.
+The coordinate system replicates the drawing interface used by participants during data collection. The canvas is 1000 by 1000 pixels, representing a grid from -10 to +10 on both axes. The scale factor is 50 pixels per grid unit, with the origin at pixel (500, 500). A reference circle of 3-unit radius (150 pixels) marks the standardized head position.
 
-The resampling function normalizes point density across all traced shapes:
+Coordinate transforms between pixel space and grid space:
 
-```javascript
-function resample(pts, n) {
-    if (pts.length < 2) return pts;
-    
-    // Calculate total path length
-    let len = 0;
-    const segs = [];
-    for (let i = 0; i < pts.length - 1; i++) {
-        const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y);
-        segs.push(d);
-        len += d;
-    }
-    if (len === 0) return [pts[0]];
-    
-    // Generate n evenly-spaced points along the path
-    const res = [{ ...pts[0] }];
-    const iv = len / (n - 1);
-    let cd = 0, si = 0;
-    
-    for (let i = 1; i < n - 1; i++) {
-        const td = i * iv;
-        while (si < segs.length && cd + segs[si] < td) {
-            cd += segs[si++];
-        }
-        if (si >= segs.length) break;
-        const pr = (td - cd) / segs[si];
-        res.push({
-            x: pts[si].x + (pts[si+1].x - pts[si].x) * pr,
-            y: pts[si].y + (pts[si+1].y - pts[si].y) * pr
-        });
-    }
-    res.push({ ...pts[pts.length - 1] });
-    return res;
-}
+```
+Grid to Pixel:
+    pixel_x = grid_x * 50 + 500
+    pixel_y = 500 - grid_y * 50
+
+Pixel to Grid:
+    grid_x = (pixel_x - 500) / 50
+    grid_y = (500 - pixel_y) / 50
 ```
 
-The default resample rate is 1000 points, configurable via slider from 500 to 10000 points.
+Note that the Y axis is inverted between the two systems. In grid coordinates, positive Y is upward. In pixel coordinates, positive Y is downward. The transforms account for this.
 
 ---
 
-## Centroid Calculation
+## 4. Data Input
 
-### Drawing Speed Bias Problem
+### ZIP Processing
 
-A simple arithmetic mean of all recorded points would weight the centroid toward regions where the participant drew slowly, introducing systematic bias unrelated to shape geometry.
+The application accepts ZIP archives containing PNG images of participant drawings. Nested ZIP files are recursively extracted. The folder structure encodes metadata:
 
-### Abandoned Approach: Simple Mean
-
-The initial implementation computed the centroid as the arithmetic mean of all recorded points. This method was abandoned after analysis revealed that centroids were consistently displaced toward regions of higher point density.
-
-### Final Implementation: Uniform Path Resampling
-
-The production algorithm eliminates drawing speed bias through uniform resampling along the path length:
-
-```javascript
-function calculateCentroid(shape) {
-    if (!shape || shape.length === 0) return { x: 0, y: 0 };
-    if (shape.length === 1) return { x: shape[0].x, y: shape[0].y };
-    
-    // Step 1: Calculate total path length
-    let totalLength = 0;
-    const segmentLengths = [];
-    
-    for (let i = 0; i < shape.length - 1; i++) {
-        const dx = shape[i + 1].x - shape[i].x;
-        const dy = shape[i + 1].y - shape[i].y;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        segmentLengths.push(len);
-        totalLength += len;
-    }
-    
-    // Handle degenerate case
-    if (totalLength < 0.0001) {
-        return { x: shape[0].x, y: shape[0].y };
-    }
-    
-    // Step 2: Determine number of samples
-    const numSamples = Math.max(100, Math.round(totalLength / 0.1));
-    const intervalLength = totalLength / numSamples;
-    
-    // Step 3: Resample at equal intervals using linear interpolation
-    let sumX = 0, sumY = 0;
-    let currentDist = 0, segmentIdx = 0;
-    
-    for (let i = 0; i < numSamples; i++) {
-        const targetDist = i * intervalLength;
-        
-        while (segmentIdx < segmentLengths.length - 1 && 
-               currentDist + segmentLengths[segmentIdx] < targetDist) {
-            currentDist += segmentLengths[segmentIdx];
-            segmentIdx++;
-        }
-        
-        const segLen = segmentLengths[segmentIdx] || 0.0001;
-        const t = segLen > 0 ? (targetDist - currentDist) / segLen : 0;
-        const clampedT = Math.max(0, Math.min(1, t));
-        
-        const p1 = shape[segmentIdx];
-        const p2 = shape[Math.min(segmentIdx + 1, shape.length - 1)];
-        
-        sumX += p1.x + clampedT * (p2.x - p1.x);
-        sumY += p1.y + clampedT * (p2.y - p1.y);
-    }
-    
-    // Step 4: Compute arithmetic mean
-    return {
-        x: sumX / numSamples,
-        y: sumY / numSamples
-    };
-}
+```
+ParticipantName_FolderNumber_OptionalLabel/ParticipantName_FrequencyHz_LoudnessdB.png
 ```
 
-The formula `numSamples = max(100, totalLength / 0.1)` ensures adequate sampling density for both short and long paths.
+For example, `Jiaxin L_11_Drawings 2/Jiaxin L_62.5Hz_100dB.png` is parsed as participant "Jiaxin L", folder number 11, frequency 62.5 Hz.
+
+Folder numbers determine trial order. The application sorts all folder numbers for a given participant in ascending order and maps them to sequential trial indices (Trial 1, Trial 2, ...). This allows non-contiguous folder numbering while preserving chronological order.
+
+### Frequency Constants
+
+The application uses six stimulus frequencies:
+
+| Frequency (Hz) | Loudness (dB SPL) |
+|---|---|
+| 62.5 | 100 |
+| 125 | 90 |
+| 250 | 85 |
+| 500 | 80 |
+| 1000 | 80 |
+| 2000 | 80 |
+
+### Single File and JSON Import
+
+Individual PNG files can be loaded directly. Previously exported JSON files can be imported to restore a complete session state, including all traced contours, settings, and metadata.
 
 ---
 
-## Area Calculation
+## 5. Manual Tracing
 
-Area is computed using the shoelace formula:
+### Point Capture
 
-```javascript
-function calculateArea(shape) {
-    if (!shape || shape.length < 3) return 0;
-    let area = 0;
-    for (let i = 0; i < shape.length; i++) {
-        const j = (i + 1) % shape.length;
-        area += shape[i].x * shape[j].y;
-        area -= shape[j].x * shape[i].y;
-    }
-    return Math.abs(area) / 2;
-}
-```
+The researcher selects a color (red or blue) and draws on the canvas using mouse or stylus input. Points are captured on every `mousemove` or `touchmove` event during an active stroke. The application supports touch input for tablet use.
 
-The absolute value ensures positive area regardless of vertex ordering.
+### Path Resampling During Tracing
 
----
+Immediately after a stroke is completed, the raw captured points are resampled to a configurable number of points (default: 1000) using arc-length parameterization. This step serves two purposes.
 
-## Average Shape Generation
+First, it normalizes point density along the path. Raw input points are clustered in regions where the researcher drew slowly and sparse where the researcher drew quickly. Resampling at equal arc-length intervals removes this drawing-speed bias so that every portion of the traced contour is represented by an equal number of points.
 
-### Abandoned Approaches
+Second, it reduces storage requirements. A researcher drawing quickly might produce a few hundred points; drawing slowly might produce thousands. Resampling to a fixed count yields consistent data sizes.
 
-**Simple Point Averaging**: Resampled all shapes to a common length and computed the arithmetic mean of corresponding points. This failed for cross-participant averaging because shapes drawn in different spatial positions produced tangled, self-intersecting average contours.
+The resampling algorithm works as follows:
 
-**Pure Centroid Alignment**: Translated all shapes so their centroids coincided at the origin before averaging. While this eliminated tangling, it discarded positional information that constituted meaningful experimental data.
+1. Compute the total path length as the sum of Euclidean distances between consecutive points.
+2. Divide the total length by (N - 1) to obtain the interval spacing, where N is the target number of points.
+3. Walk along the path at uniform interval steps. For each target distance, find the segment containing that distance and use linear interpolation to compute the exact position.
 
-### Final Implementation: Centroid-Aligned Averaging with Position Preservation
-
-The production algorithm combines centroid alignment during averaging with restoration of the mean centroid position:
-
-```javascript
-function simpleAverageShapes(shapes, targetLength = 1000) {
-    if (!shapes || shapes.length === 0) return null;
-    
-    const validShapes = shapes.filter(s => s && s.length >= 3);
-    if (validShapes.length === 0) return null;
-    if (validShapes.length === 1) return validShapes[0];
-    
-    // Step 1: Calculate centroid of each shape
-    const centroids = validShapes.map(shape => calculateCentroid(shape));
-    
-    // Calculate average centroid position
-    let avgCentroidX = 0, avgCentroidY = 0;
-    for (const c of centroids) {
-        avgCentroidX += c.x;
-        avgCentroidY += c.y;
-    }
-    avgCentroidX /= centroids.length;
-    avgCentroidY /= centroids.length;
-    
-    // Step 2: Translate shapes to origin and resample
-    const centeredResampledShapes = validShapes.map((shape, idx) => {
-        const centroid = centroids[idx];
-        const centered = shape.map(pt => ({
-            x: pt.x - centroid.x,
-            y: pt.y - centroid.y
-        }));
-        
-        // Resample to target length
-        const resampled = [];
-        for (let i = 0; i < targetLength; i++) {
-            const t = i / targetLength * centered.length;
-            const idx = Math.floor(t);
-            const frac = t - idx;
-            const p1 = centered[idx % centered.length];
-            const p2 = centered[(idx + 1) % centered.length];
-            resampled.push({
-                x: p1.x + frac * (p2.x - p1.x),
-                y: p1.y + frac * (p2.y - p1.y)
-            });
-        }
-        return resampled;
-    });
-    
-    // Step 3: Average point-by-point
-    const avgCenteredShape = [];
-    for (let i = 0; i < targetLength; i++) {
-        let sumX = 0, sumY = 0;
-        for (const shape of centeredResampledShapes) {
-            sumX += shape[i].x;
-            sumY += shape[i].y;
-        }
-        avgCenteredShape.push({
-            x: sumX / centeredResampledShapes.length,
-            y: sumY / centeredResampledShapes.length
-        });
-    }
-    
-    // Step 4: Translate to average centroid position
-    return avgCenteredShape.map(pt => ({
-        x: pt.x + avgCentroidX,
-        y: pt.y + avgCentroidY
-    }));
-}
-```
-
-This approach produces a clean average contour representing the typical shape while preserving the average spatial position.
+Linear interpolation was chosen over spline or curve-fitting methods because the raw captured points already represent the researcher's intended stroke. Higher-order interpolation could introduce smoothing artifacts that alter the traced shape.
 
 ---
 
-## Ground Truth Integration and Area Scaling
+## 6. Contour Normalization
 
-When connected to the original experimental database via Google Apps Script API, the application can scale traced average shapes to match ground truth area measurements.
+Every contour, whether an individual trace or an averaged result, is normalized to a canonical form before use. Normalization ensures that contours traced by different researchers, or the same researcher on different occasions, are directly comparable regardless of where the stroke began or which direction it was drawn.
 
-The scaling transformation preserves the shape centroid while adjusting overall size:
+### Starting Point
 
-```javascript
-function scaleShapeToArea(shape, targetArea) {
-    if (!shape || shape.length < 3 || targetArea <= 0) return shape;
-    
-    const currentArea = calculateArea(shape);
-    if (currentArea <= 0) return shape;
-    
-    // Area scales with square of linear scale
-    const scaleFactor = Math.sqrt(targetArea / currentArea);
-    const centroid = calculateCentroid(shape);
-    
-    return shape.map(pt => ({
-        x: centroid.x + (pt.x - centroid.x) * scaleFactor,
-        y: centroid.y + (pt.y - centroid.y) * scaleFactor
-    }));
-}
+The contour is rotated (cyclically reindexed) so that index 0 corresponds to the point with the highest Y coordinate in grid space. If multiple points share the highest Y, the one with the highest X coordinate is chosen. This places the starting point at the topmost location on the shape, with rightward preference as the tiebreaker.
+
+### Winding Direction
+
+After rotating to the correct starting point, the winding direction is checked using the signed area formula:
+
 ```
+SignedArea = (1/2) * sum_i (x_i * y_{i+1} - x_{i+1} * y_i)
+```
+
+A positive signed area indicates counterclockwise traversal. A negative signed area indicates clockwise traversal. If the contour is clockwise, the point order is reversed (keeping the starting point at index 0) to produce counterclockwise winding.
+
+### Why This Matters
+
+Without normalization, two identical shapes traced in opposite directions would cancel each other during point-by-point averaging. Normalization prevents this by ensuring all shapes share the same traversal direction and reference point before any averaging takes place. The radial averaging method (Section 7) is inherently direction-agnostic, so normalization is primarily relevant for data export consistency and display.
 
 ---
 
-## Color Detection for Overlap Statistics
+## 7. Cross-Participant Shape Averaging
 
-The application computes the percentage of traced contour points that overlap with colored pixels in the original participant drawing. This provides quality metrics for tracing accuracy.
+### Method: Radial (Polar) Coordinate Averaging
 
-### Canvas and Grid Detection
+The application averages shapes by converting them to polar coordinate representations relative to their centroids, averaging the radial distance functions, and reconstructing the result. This approach avoids the point correspondence problem entirely.
 
-Canvas elements (grid lines, background) are identified when RGB channels are approximately equal:
+### Intuition
 
-```javascript
-function isCanvasOrGrid(r, g, b) {
-    const maxDiff = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(r - b));
-    return maxDiff < 30;
-}
+Consider two shapes drawn by different participants. One is roughly circular, the other roughly elliptical. Both are supposed to represent the same percept at the same frequency. The question is: what does the "average" shape look like?
+
+A naive approach would be to match points along the two contours and average their positions. But which point on the circle corresponds to which point on the ellipse? The two shapes may have been traced starting at different locations, in different directions, and with different numbers of raw points. Any attempt to match points by index is arbitrary and produces artifacts, especially self-intersecting loops.
+
+The radial method sidesteps this entirely. Instead of asking "which points correspond," it asks "how far does each shape extend in each direction from its center?" This is a well-defined quantity for any closed shape. By averaging these directional extents, the result captures the typical shape without requiring any point matching.
+
+### Algorithm
+
+The averaging proceeds in seven steps.
+
+Step 1, Centroid Calculation: The centroid of each input shape is computed using uniform path resampling (see Section 8).
+
+Step 2, Radial Conversion: For each shape, a ray is cast from the centroid at each of N uniformly spaced angles (where N is the radial resolution, default 720). The angles span the full circle: angle_k = (k / N) * 2 * pi, for k = 0, 1, ..., N-1. For each ray, the algorithm finds all intersections with the shape boundary segments using ray-segment intersection testing, and records the distance to the farthest intersection. The result is a function d_shape(angle) mapping each angle to a radial distance.
+
+Step 3, Mean Centroid: The average centroid position is computed as the arithmetic mean of all input shape centroids. This preserves the average spatial position of the original drawings, which is meaningful experimental data (it reflects where participants perceived the sound object to be).
+
+Step 4, Distance Averaging: At each angle, the radial distances from all input shapes are averaged:
+
+```
+d_avg(angle_k) = (1 / M) * sum_{j=1}^{M} d_j(angle_k)
 ```
 
-### Red Detection
+where M is the number of input shapes and d_j(angle_k) is the radial distance for shape j at angle k.
 
-Red detection encompasses pure red, pink, magenta, and red overlaid on gray or black backgrounds:
+Step 5, Cartesian Reconstruction: The averaged radial distances are converted back to Cartesian coordinates, positioned at the mean centroid:
 
-```javascript
-function hasRedComponent(r, g, b) {
-    if (isCanvasOrGrid(r, g, b)) return false;
-    
-    // Pure red or red-dominant
-    if (r > 150 && r > g * 1.2 && r > b * 1.2) return true;
-    
-    // Pink (red + white blend)
-    if (r > 180 && g > 100 && b > 100 && r > g && r > b) return true;
-    
-    // Magenta/pink
-    if (r > 150 && b > 100 && r > g * 1.3 && g < 150) return true;
-    
-    // Red over gray
-    const avgGB = (g + b) / 2;
-    if (r > avgGB + 40 && r > 100) return true;
-    
-    // Red over black
-    if (r > 50 && r > g * 1.5 && r > b * 1.5 && g < 100 && b < 100) return true;
-    
-    // Light red/salmon
-    if (r > 200 && g > 120 && g < 180 && b > 100 && b < 160 && r > g && r > b) return true;
-    
-    return false;
-}
+```
+x_k = centroid_x_avg + d_avg(angle_k) * cos(angle_k)
+y_k = centroid_y_avg + d_avg(angle_k) * sin(angle_k)
 ```
 
-### Blue Detection
+Step 6, Normalization: The reconstructed contour is normalized (Section 6) to start at the highest Y point and traverse counterclockwise.
 
-Blue detection follows an analogous pattern:
+Step 7, Verification: A defensive check confirms that the signed area of the output is positive (counterclockwise). If normalization failed for any reason, the shape is reversed. In practice this check has never been triggered, but it guards against numerical edge cases.
 
-```javascript
-function hasBlueComponent(r, g, b) {
-    if (isCanvasOrGrid(r, g, b)) return false;
-    
-    // Pure blue or blue-dominant
-    if (b > 150 && b > r * 1.2 && b > g * 1.1) return true;
-    
-    // Cyan-blue
-    if (b > 150 && g > 100 && b >= g && r < g) return true;
-    
-    // Light blue
-    if (b > 180 && g > 100 && r > 80 && b > r && b > g) return true;
-    
-    // Blue over gray
-    const avgRG = (r + g) / 2;
-    if (b > avgRG + 40 && b > 100) return true;
-    
-    // Blue over black
-    if (b > 50 && b > r * 1.5 && b > g * 1.3 && r < 100) return true;
-    
-    // Steel blue / muted blue
-    if (b > 120 && b > r && b > g * 0.9 && r < 150) return true;
-    
-    return false;
-}
+### Ray-Segment Intersection
+
+Each ray-boundary intersection is computed using a standard parametric formulation. Given a ray origin (r_x, r_y) with direction (d_x, d_y), and a segment from (p1_x, p1_y) to (p2_x, p2_y), the intersection parameters t (distance along ray) and u (fraction along segment) are:
+
+```
+denom = d_x * (p2_y - p1_y) - d_y * (p2_x - p1_x)
+
+t = ((p1_x - r_x) * (p2_y - p1_y) - (p1_y - r_y) * (p2_x - p1_x)) / denom
+u = ((p1_x - r_x) * d_y - (p1_y - r_y) * d_x) / denom
 ```
 
-### Purple Detection
+The intersection is valid when t >= 0 (the intersection is in the ray's forward direction) and 0 <= u <= 1 (the intersection lies on the segment). When |denom| < 1e-10, the ray and segment are treated as parallel and no intersection is recorded.
 
-Purple pixels are classified as belonging to both red and blue categories:
+For each angle, the farthest valid intersection (largest t) is used. Taking the farthest rather than the nearest ensures that the radial sample captures the outer boundary of the shape, not an inner fold or crossing.
 
-```javascript
-function isPurple(r, g, b) {
-    if (isCanvasOrGrid(r, g, b)) return false;
-    
-    // Purple: significant red and blue, less green
-    if (r > 100 && b > 100 && r > g * 1.2 && b > g * 1.2) return true;
-    
-    // Magenta
-    if (r > 150 && b > 150 && g < 120) return true;
-    
-    // Violet
-    if (b > 120 && r > 80 && b > g && r > g && g < 150) return true;
-    
-    // Light purple/lavender
-    if (r > 150 && b > 150 && g > 100 && g < r && g < b) return true;
-    
-    return false;
-}
-```
+### Radial Resolution
 
-### Overlap Calculation
+The number of angular samples N is configurable via a slider in the interface, with range 36 to 3600 and default 720. Higher resolution yields more precise shape reconstruction at the cost of computation time. At the default of 720, the angular spacing is 0.5 degrees.
 
-The overlap statistic is calculated by checking each traced point against a small area (brush radius) in the original image:
+The angle conversion uses the formula angle_rad = (k / N) * 2 * pi to ensure the full circle is always covered exactly once, regardless of the value of N.
 
-```javascript
-function calculateImageOverlap(img, data) {
-    // ... setup temporary canvas and get image data ...
-    
-    let redOverlap = null;
-    if (data.red && data.red.length > 0) {
-        let totalRedPoints = 0;
-        let matchingRedPoints = 0;
-        
-        data.red.forEach(shape => {
-            if (!shape) return;
-            shape.forEach(pt => {
-                const canvasPt = unitToCanvas(pt.x, pt.y);
-                totalRedPoints++;
-                
-                // Check area around the point
-                let found = false;
-                for (let dx = -brushSize; dx <= brushSize && !found; dx++) {
-                    for (let dy = -brushSize; dy <= brushSize && !found; dy++) {
-                        if (isRedPixel(canvasPt.x + dx, canvasPt.y + dy)) {
-                            found = true;
-                        }
-                    }
-                }
-                if (found) matchingRedPoints++;
-            });
-        });
-        
-        redOverlap = totalRedPoints > 0 ? (matchingRedPoints / totalRedPoints) * 100 : 0;
-    }
-    
-    // Similar calculation for blue...
-    
-    return { red: redOverlap, blue: blueOverlap };
-}
-```
+### Why Radial Averaging Over Alternatives
+
+Radial averaging was chosen after evaluating and discarding two other approaches (see Section 14). Its key properties are:
+
+1. It requires no point correspondence. Each shape is represented by an independent function of angle.
+2. It is inherently direction-agnostic. A shape drawn clockwise defines the same boundary as one drawn counterclockwise; raycasting finds the same edges either way.
+3. It cannot produce self-intersecting results. The output is a single-valued function of angle relative to the centroid, which by definition traces a simple closed curve.
+4. It preserves average position. The mean centroid is used for reconstruction, so the output reflects where participants collectively placed their drawings on the grid.
+5. It preserves average size. If all inputs have area A, the output area is approximately A (up to discretization effects from angular sampling).
+
+The primary limitation of radial averaging is its assumption that the shape is star-convex with respect to its centroid: every ray from the centroid must intersect the boundary. For highly concave or multi-lobed shapes, some rays may miss the boundary entirely (yielding distance 0 at that angle). In practice, the hand-drawn shapes in this study are sufficiently convex that this limitation does not arise.
 
 ---
 
-## Cloud Storage Implementation
+## 8. Centroid Calculation
 
-### Data Volume Constraints
+The centroid of a contour is calculated using uniform path resampling followed by arithmetic mean. This method was chosen to eliminate drawing-speed bias.
 
-The initial implementation stored the complete dataset as a single JSON string in one Google Sheets cell. This failed when payload sizes exceeded 50,000 characters.
+### The Problem with Raw Point Averaging
 
-### Chunked Storage
+When a researcher traces a contour, the captured points are not uniformly distributed along the path. Regions drawn slowly produce many closely spaced points; regions drawn quickly produce few widely spaced points. If the centroid were computed as the simple mean of these raw points, slow-drawn regions would contribute disproportionately, pulling the centroid toward wherever the researcher happened to pause or slow down. This is an artifact of the input device, not a property of the shape.
 
-The production implementation splits large JSON strings across multiple cells:
+### The Solution: Uniform Path Resampling
 
-```javascript
-const MAX_CELL_SIZE = 49000;
-const allDataJson = JSON.stringify(allData);
-const chunks = [];
+The algorithm resamples the contour at equal arc-length intervals before computing the mean, so that every portion of the path contributes equally regardless of original point density.
 
-for (let i = 0; i < allDataJson.length; i += MAX_CELL_SIZE) {
-    chunks.push(allDataJson.substring(i, i + MAX_CELL_SIZE));
-}
+Step 1: The total path length L is computed as the sum of Euclidean distances between consecutive points:
+
+```
+L = sum_{i=0}^{n-2} sqrt((x_{i+1} - x_i)^2 + (y_{i+1} - y_i)^2)
 ```
 
-### Concurrency Control
+Step 2: The number of resample points is set to max(100, L / 0.1). This gives at least 100 samples for short paths and approximately one sample per 0.1 grid units for longer paths.
 
-Storage operations employ script-level locking to prevent data loss from simultaneous saves. The coordinate data sheet operates on an append-only basis with duplicate detection.
+Step 3: Resample points are placed at equal intervals along the path using linear interpolation. For each target distance d along the path, the algorithm finds the segment containing d and interpolates:
 
-### Data Merging
-
-When loading data from multiple tracers, the application merges without replacing existing shapes:
-
-```javascript
-function mergeDataInto(target, source) {
-    for (const participant of Object.keys(source)) {
-        // ... ensure structure exists ...
-        
-        // Merge shapes, avoiding exact duplicates
-        srcData.red.forEach(srcShape => {
-            const isDuplicate = tgtData.red.some(tgtShape => 
-                tgtShape && tgtShape.length === srcShape.length &&
-                tgtShape.every((pt, i) => pt.x === srcShape[i].x && pt.y === srcShape[i].y)
-            );
-            if (!isDuplicate) {
-                tgtData.red.push(srcShape);
-            }
-        });
-        // Similar for blue...
-    }
-}
 ```
+x = x_a + t * (x_b - x_a)
+y = y_a + t * (y_b - y_a)
+```
+
+where (x_a, y_a) and (x_b, y_b) are the segment endpoints and t is the fractional distance within that segment.
+
+Step 4: The centroid is the arithmetic mean of the resampled coordinates:
+
+```
+centroid_x = (1/N) * sum_{i=1}^{N} x_i
+centroid_y = (1/N) * sum_{i=1}^{N} y_i
+```
+
+Because each resampled point represents an equal length of the path, every section of the contour contributes equally to the centroid.
 
 ---
 
-## Visual Rendering
+## 9. Area Calculation
 
-### Layer Order
+Area is computed using the shoelace formula (also known as Gauss's area formula or the surveyor's formula). Given a polygon defined by vertices (x_0, y_0), (x_1, y_1), ..., (x_{n-1}, y_{n-1}), the area is:
 
-The canvas renders in the following order (bottom to top):
-
-1. White background
-2. Background image at configurable opacity (default 50%)
-3. Reference circle (3-unit radius)
-4. Traced shapes at configurable opacity (default 30%)
-5. Average shapes at full opacity with darker colors
-6. Grid overlay
-
-### Configurable Opacities
-
-- **Image Opacity**: 0-100%, controls visibility of original participant drawing
-- **Shape Opacity**: 0-100%, controls visibility of individual traced shapes behind the average
-
-### Composite Image Generation
-
-Frequency composite images display all individual traced shapes at low opacity with the calculated average shape prominently overlaid:
-
-```javascript
-function updateFreqCompositesGallery() {
-    // For each frequency with data:
-    // 1. Draw all individual red shapes at traceOpacity (0.25)
-    // 2. Draw all individual blue shapes at traceOpacity (0.25)
-    // 3. Draw red average shape at full opacity with thick line
-    // 4. Draw blue average shape at full opacity with thick line
-    // 5. Draw centroid markers (+ signs) for each average
-}
 ```
+Area = (1/2) * |sum_{i=0}^{n-1} (x_i * y_{i+1} - x_{i+1} * y_i)|
+```
+
+where index arithmetic is modulo n so that the last vertex connects back to the first.
+
+### Intuition
+
+The formula computes the area by summing the signed areas of trapezoids formed between each edge of the polygon and the x-axis. Moving left to right along the top of the polygon adds positive area; moving right to left along the bottom subtracts, leaving exactly the enclosed area. The crisscross pattern of the multiplications (x_i with y_{i+1}, then x_{i+1} with y_i) resembles the lacing of a shoe, giving the formula its name. The absolute value ensures a positive result regardless of traversal direction.
+
+### Why Shoelace Rather Than Brush-Corrected Area
+
+Earlier versions of the application included a brush-width correction that added (perimeter * brush_radius) to the shoelace area, approximating the visual area of the original brush strokes on screen. This was removed in v5.0 for two reasons.
+
+First, the averaged contours produced by radial averaging are mathematical boundaries, not rendered brush strokes. They represent the geometric boundary of the average shape, and the shoelace formula is the mathematically appropriate measure for the area enclosed by a polygon.
+
+Second, the brush-correction introduced a dependency on brush size that was not meaningful for the averaged result. The brush size is a display parameter of the tracing tool, not a property of the participant's perceived sound object. Removing the correction yields area values that depend only on the shape geometry.
+
+A 2x2 grid-unit square now reports area 4.0 (the geometric area of the polygon), without any additive correction term.
+
+### Where Area Is Calculated
+
+Area is computed on the average shape only, not on individual traced contours. Individual traces are intermediate data; the scientifically relevant quantity is the area of the cross-participant average at each frequency and phase condition.
 
 ---
 
-## Data Structures
+## 10. Quality Assessment
 
-### Primary Data Structure
+### Image Overlap Statistics
 
-Traced shapes are organized hierarchically:
+After tracing, the application computes what percentage of traced points fall on colored pixels in the original participant drawing. This serves as a quality check on tracing accuracy.
 
-```javascript
-allData = {
-    "Participant Name": {
-        "Trial 1": {
-            "62.5Hz_100dB": {
-                red: [[{x, y}, ...], ...],    // Array of shapes
-                blue: [[{x, y}, ...], ...],   // Array of shapes
-                redAvg: [{x, y}, ...],        // Per-trial average (optional)
-                blueAvg: [{x, y}, ...]        // Per-trial average (optional)
-            }
-        }
-    }
-}
-```
+For each traced point, the algorithm converts to canvas pixel coordinates and checks a neighborhood (sized by the brush radius) for the presence of the target color in the original image. The overlap percentage is reported per color.
 
-### Cross-Participant Frequency Averages
+### Color Detection
 
-```javascript
-frequencyAverages = {
-    62.5: {
-        redShapes: [[{x, y}, ...], ...],  // All red shapes at this frequency
-        blueShapes: [[{x, y}, ...], ...], // All blue shapes at this frequency
-        redAvg: [{x, y}, ...],            // Cross-participant average
-        blueAvg: [{x, y}, ...],           // Cross-participant average
-        redCentroid: {x, y},              // Centroid of average shape
-        blueCentroid: {x, y},             // Centroid of average shape
-        redArea: number,                   // Area of average shape
-        blueArea: number                   // Area of average shape
-    }
-}
-```
+The original participant drawings use red for in-phase and blue for out-of-phase contours. However, PNG compression, anti-aliasing, and drawing tool variations produce a wide range of pixel colors. The detection functions use multi-condition thresholding to handle these variations:
 
-All coordinates are stored in unit space (-10 to +10 on both axes).
+Red detection covers pure red, pink, salmon, magenta (counted as half red/half blue), and other reddish hues while excluding brown and near-gray tones.
+
+Blue detection covers pure blue, cyan, steel blue, periwinkle, and other bluish hues while excluding near-gray tones.
+
+Purple pixels (roughly equal red and blue components) are counted as both red and blue, since they typically arise at overlapping boundaries.
 
 ---
 
-## Export Formats
+## 11. Data Export and Persistence
 
 ### CSV Export
 
+Exports all traced coordinate data in a flat table:
+
 ```
-Participant,Trial,Frequency,Color,Shape,Point,X,Y,IsAvg
-Jiaxin L,Trial 1,62.5Hz_100dB,Red,1,1,-2.340000,3.120000,false
-...
-Jiaxin L,Trial 1,62.5Hz_100dB,Red,Avg,1,-2.150000,3.080000,true
+Participant, Trial, Frequency, Color, Shape, Point, X, Y, IsAvg
 ```
+
+Individual shapes are numbered sequentially. Average shapes are labeled "Avg" in the Shape column and flagged with IsAvg=true. Coordinates are in grid units with six decimal places.
 
 ### JSON Export
 
-```json
-{
-    "exportDate": "2026-01-14T...",
-    "version": "4.2",
-    "settings": {
-        "resampleRate": 1000,
-        "imageOpacity": 50,
-        "shapeOpacity": 30,
-        "brushSize": 5
-    },
-    "allData": { ... }
-}
-```
+Exports the complete application state including all traced data, settings (resample rate, image opacity, shape opacity, brush size, radial resolution), and metadata (export date, version number). This file can be re-imported to restore a full session.
 
 ### PNG Export
 
-Per-frequency composite images include:
-- All individual traced shapes at configurable opacity
-- Average shapes at full opacity with centroid markers
-- Grid overlay
-- Statistics text (shape counts, centroid coordinates, areas, centroid shift)
+Composite images can be exported per frequency. Each composite shows all individual traced contours at reduced opacity with the average shape drawn prominently on top. A grid and reference circle are included for spatial reference. Area and centroid statistics are overlaid as text.
+
+### Google Sheets Cloud Collaboration
+
+The application integrates with a Google Apps Script web application for multi-researcher collaboration. The cloud backend provides:
+
+1. Save: Coordinate data for all traced shapes is serialized to JSON and sent to the Apps Script endpoint. Large datasets are chunked to stay within URL length limits. Data is stored in a Google Sheets spreadsheet with separate sheets for coordinate data and summary statistics.
+
+2. Load: Previously saved data can be retrieved by specifying the tracer name. The application merges loaded data with any existing local data, avoiding duplicates.
+
+3. Auto-save: An optional auto-save mode triggers a cloud save after each completed stroke, with a debounce delay to avoid excessive network requests.
+
+Each researcher identifies themselves by a tracer name, and the cloud backend stores data keyed by this name. This allows multiple researchers to contribute traces to a shared dataset.
 
 ---
 
-## Version History
+## 12. Verification Test Suite
 
-- **Version 1.0**: Core tracing interface with local storage persistence
-- **Version 2.0**: Cloud collaboration through Google Sheets integration
-- **Version 3.0**: Nested ZIP support, JSON chunking for large datasets
-- **Version 4.0**: Centroid-aligned averaging, composite image gallery, ground truth integration
-- **Version 4.1**: Uniform path resampling for centroid calculation, refined color detection
-- **Version 4.2**: Enhanced tracing statistics with overlap calculation, improved visual feedback, cloud save progress indicators
+The application includes four automated tests (accessible via the browser console as `runContourTests()`) that verify the correctness of the normalization and averaging pipeline.
+
+### Test 1: Normalization of CW and CCW Input
+
+Two representations of the same 2x2 square at position (-5, 5) to (-3, 3) are provided, one drawn clockwise and one counterclockwise. Both are normalized and checked to confirm:
+
+- Starting point is (-3, 5), the highest-Y point with highest-X tiebreaker.
+- Signed area is positive (counterclockwise).
+- Both normalized outputs are identical point sequences.
+
+### Test 2: Averaging Shapes at Different Positions
+
+Two identical 2x2 squares are placed at opposite corners of the grid: one at (-6, 6) to (-4, 4) drawn clockwise, one at (4, -4) to (6, -6) drawn counterclockwise. The average is checked for:
+
+- Centroid near (0, 0), the midpoint of the two input centroids.
+- Area near 4.0 square units (preserved from input).
+- Starting point at the highest Y, with counterclockwise winding.
+
+### Test 3: Non-Highest-Y Start with Clockwise Input
+
+Two identical 2x2 squares centered at the origin are drawn starting from non-topmost vertices and in clockwise direction. This is a worst-case scenario for normalization. The test verifies that both normalize identically (starting at (1, 1), counterclockwise), and that their average has centroid near (0, 0), area near 4.0, and correct normalization.
+
+### Test 4: Opposite Positions with Opposite Winding Must Not Cancel
+
+A 2x2 square centered at (1, 1) is drawn clockwise. A 2x2 square centered at (-1, -1) is drawn counterclockwise. This tests whether opposite winding directions cause destructive cancellation in the averaging. The critical check is that the averaged area is greater than 2.0 (it should be near 4.0). This test confirms that the radial averaging method, which operates on distances rather than signed displacements, is immune to direction-dependent cancellation.
 
 ---
 
-## References
+## 13. Application Settings
 
-Coordinate resampling methodology follows established practices in computational geometry for eliminating sampling bias in path-based measurements. The shoelace formula for area calculation is a standard result in polygon geometry. Linear interpolation for point placement along path segments ensures that resampled points lie exactly on the original drawn trajectory without introducing smoothing artifacts.
+| Setting | Default | Range | Description |
+|---|---|---|---|
+| Resample Rate | 1000 | 500 - 10000 | Number of points per traced contour after resampling |
+| Brush Size | 5 px | 1 - 20 | Drawing brush diameter in pixels |
+| Image Opacity | 50% | 0 - 100% | Transparency of the background participant drawing |
+| Shape Opacity | 30% | 0 - 100% | Transparency of previously traced contours |
+| Radial Resolution | 720 | 36 - 3600 | Number of angular samples for radial averaging |
+
+Radial resolution controls the angular precision of the averaging algorithm. At 720 (default), angles are spaced 0.5 degrees apart. Lower values (e.g. 360 for 1-degree spacing) are faster but less precise. Higher values (e.g. 3600 for 0.1-degree spacing) give finer shape reconstruction. For the shapes in this study, 720 provides a good balance.
+
+All settings are included in JSON exports and cloud saves, allowing sessions to be restored with the same configuration.
+
+---
+
+## 14. Abandoned Approaches
+
+Three averaging methods were implemented and subsequently replaced due to unacceptable artifacts.
+
+### Simple Point Averaging (v1.x)
+
+All shapes were resampled to a common point count and averaged index by index. This failed for cross-participant averaging because shapes at different spatial positions produced tangled, self-intersecting contours. Points at the same index in different shapes represented different angular positions around the shape, and their mean fell at positions not representative of any individual shape.
+
+### Centroid-Aligned Point Averaging (v3.x)
+
+Shapes were translated so their centroids coincided at the origin, then resampled and averaged point by point. This eliminated the tangling artifact but introduced a subtler problem: shapes drawn in different directions or starting at different locations still produced self-intersecting loops. Point indices still lacked angular correspondence, so a point near the top of one shape could be averaged with a point near the bottom of another.
+
+An angular alignment step was added (rotating point indices so index 0 corresponded to the rightmost point, then enforcing counterclockwise winding), which improved results but did not fully eliminate self-intersections in edge cases with highly dissimilar shapes.
+
+### Brush-Width Area Correction (v4.3 - v4.9)
+
+Area was calculated as shoelace area plus (perimeter * brush_radius), approximating the visual area of the brush stroke. This was appropriate when measuring individual drawn shapes rendered on screen, but it was not appropriate for averaged contours, which are mathematical constructions with no brush rendering. The correction was removed in v5.0 so that area values reflect pure polygon geometry.
