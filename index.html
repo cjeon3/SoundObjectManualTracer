@@ -38,7 +38,7 @@
         <header class="text-center mb-6">
             <h1 class="text-4xl font-extrabold text-blue-800 mb-2">Sound Object Contour Tracer</h1>
             <p class="text-xl font-semibold text-gray-600">UCI Hearing & Speech Lab</p>
-            <p class="text-sm text-gray-400 mt-1">v5.0 — Last updated: January 15, 2026</p>
+            <p class="text-sm text-gray-400 mt-1">v5.1 — Last updated: February 2, 2026</p>
         </header>
         
         <!-- Upload -->
@@ -201,10 +201,9 @@
             
             <div class="border-t border-indigo-200 pt-4 mt-4">
                 <h4 class="font-semibold text-gray-700 mb-2">Team Collaboration</h4>
-                <div class="grid grid-cols-3 gap-3 mb-3">
+                <div class="grid grid-cols-2 gap-3 mb-3">
                     <button id="cloud-list" class="px-4 py-2 rounded-xl font-bold text-sm bg-indigo-500 text-white shadow">👥 List Tracers</button>
-                    <button id="cloud-load-all" class="px-4 py-2 rounded-xl font-bold text-sm bg-purple-500 text-white shadow">📥 Load All</button>
-                    <button id="cloud-merge" class="px-4 py-2 rounded-xl font-bold text-sm bg-orange-500 text-white shadow">🔀 Merge All</button>
+                    <button id="cloud-load-all" class="px-4 py-2 rounded-xl font-bold text-sm bg-purple-500 text-white shadow">📥 Load All (excl. Final)</button>
                 </div>
                 <div class="flex gap-2 mb-2">
                     <select id="tracer-select" class="flex-1 px-3 py-2 border-2 border-indigo-300 rounded-xl text-sm">
@@ -1248,57 +1247,48 @@ async function handleSingle(file) {
     }
 }
 
+/**
+ * Apply loaded settings to UI sliders and state variables.
+ * Used by handleJson and loadFromCloud to avoid duplication.
+ */
+function applySettings(settings) {
+    if (!settings) return;
+    if (settings.resampleRate) {
+        resampleRate = settings.resampleRate;
+        document.getElementById('resample-slider').value = resampleRate;
+        document.getElementById('resample-val').textContent = resampleRate;
+    }
+    if (settings.imageOpacity !== undefined) {
+        IMAGE_OPACITY = settings.imageOpacity / 100;
+        document.getElementById('img-opacity-slider').value = settings.imageOpacity;
+        document.getElementById('img-opacity-val').textContent = settings.imageOpacity + '%';
+    }
+    if (settings.shapeOpacity !== undefined) {
+        SHAPE_OPACITY = settings.shapeOpacity / 100;
+        document.getElementById('shape-opacity-slider').value = settings.shapeOpacity;
+        document.getElementById('shape-opacity-val').textContent = settings.shapeOpacity + '%';
+    }
+    if (settings.brushSize) {
+        brushSize = settings.brushSize;
+        document.getElementById('brush-slider').value = brushSize;
+        document.getElementById('brush-val').textContent = brushSize;
+    }
+    if (settings.radialResolution) {
+        radialResolution = settings.radialResolution;
+        document.getElementById('radial-res-slider').value = radialResolution;
+        document.getElementById('radial-res-val').textContent = radialResolution;
+    }
+}
+
 function handleJson(file) {
     const r = new FileReader();
     r.onload = e => {
         try {
             const d = JSON.parse(e.target.result);
             if (d.allData) allData = d.allData;
-            if (d.settings) {
-                if (d.settings.resampleRate) {
-                    resampleRate = d.settings.resampleRate;
-                    document.getElementById('resample-slider').value = resampleRate;
-                    document.getElementById('resample-val').textContent = resampleRate;
-                }
-                if (d.settings.imageOpacity !== undefined) {
-                    IMAGE_OPACITY = d.settings.imageOpacity / 100;
-                    document.getElementById('img-opacity-slider').value = d.settings.imageOpacity;
-                    document.getElementById('img-opacity-val').textContent = d.settings.imageOpacity + '%';
-                }
-                if (d.settings.shapeOpacity !== undefined) {
-                    SHAPE_OPACITY = d.settings.shapeOpacity / 100;
-                    document.getElementById('shape-opacity-slider').value = d.settings.shapeOpacity;
-                    document.getElementById('shape-opacity-val').textContent = d.settings.shapeOpacity + '%';
-                }
-                if (d.settings.brushSize) {
-                    brushSize = d.settings.brushSize;
-                    document.getElementById('brush-slider').value = brushSize;
-                    document.getElementById('brush-val').textContent = brushSize;
-                }
-                if (d.settings.radialResolution) {
-                    radialResolution = d.settings.radialResolution;
-                    document.getElementById('radial-res-slider').value = radialResolution;
-                    document.getElementById('radial-res-val').textContent = radialResolution;
-                }
-            }
-            
-            const parts = new Map();
-            for (const p of Object.keys(allData)) {
-                parts.set(p, new Map());
-                for (const t of Object.keys(allData[p])) {
-                    parts.get(p).set(t, new Set());
-                    for (const fk of Object.keys(allData[p][t])) {
-                        const hz = parseFloat(fk);
-                        if (!isNaN(hz)) parts.get(p).get(t).add(hz);
-                    }
-                }
-            }
-            
-            if (parts.size) {
-                buildTabs(parts);
-                updateGallery();
-                status('JSON imported');
-            }
+            applySettings(d.settings);
+            rebuildTabsFromData();
+            status('JSON imported');
         } catch (e) {
             status('Error: ' + e.message);
         }
@@ -1444,22 +1434,6 @@ function selectFreq(f, btn) {
 // ============================================
 // AVERAGE SHAPES
 // ============================================
-function calcAvg(shapes) {
-    if (!shapes?.length) return null;
-    if (shapes.length === 1) return [...shapes[0]];
-    const maxLen = Math.max(...shapes.map(s => s.length));
-    const norm = shapes.map(s => resample(s, maxLen));
-    const avg = [];
-    for (let i = 0; i < maxLen; i++) {
-        let sx = 0, sy = 0, c = 0;
-        for (const s of norm) {
-            if (i < s.length) { sx += s[i].x; sy += s[i].y; c++; }
-        }
-        if (c) avg.push({ x: sx / c, y: sy / c });
-    }
-    return avg;
-}
-
 function clearAvgCur() {
     // Clear all averages
     for (const p of Object.keys(allData)) {
@@ -1944,66 +1918,6 @@ function raySegmentIntersection(rayX, rayY, rayDirX, rayDirY, p1x, p1y, p2x, p2y
     }
     
     return null;
-}
-
-/**
- * Resample a contour to a fixed number of points using arc-length parameterization
- * This ensures uniform spacing along the perimeter
- */
-function resampleContour(shape, targetLength) {
-    if (!shape || shape.length < 2) return shape;
-    if (shape.length === targetLength) return shape;
-    
-    // Calculate total perimeter length
-    let totalLength = 0;
-    const segmentLengths = [];
-    
-    for (let i = 0; i < shape.length; i++) {
-        const j = (i + 1) % shape.length;
-        const dx = shape[j].x - shape[i].x;
-        const dy = shape[j].y - shape[i].y;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        segmentLengths.push(len);
-        totalLength += len;
-    }
-    
-    if (totalLength < 0.0001) {
-        // Degenerate case - all points at same location
-        return Array(targetLength).fill({ x: shape[0].x, y: shape[0].y });
-    }
-    
-    // Resample at uniform intervals along the perimeter
-    const intervalLength = totalLength / targetLength;
-    const resampled = [];
-    
-    let currentDist = 0;
-    let segmentIdx = 0;
-    let distIntoSegment = 0;
-    
-    for (let i = 0; i < targetLength; i++) {
-        const targetDist = i * intervalLength;
-        
-        // Advance through segments until we find the one containing targetDist
-        while (currentDist + segmentLengths[segmentIdx] < targetDist && segmentIdx < segmentLengths.length - 1) {
-            currentDist += segmentLengths[segmentIdx];
-            segmentIdx++;
-        }
-        
-        // Interpolate within the current segment
-        const segLen = segmentLengths[segmentIdx];
-        const t = segLen > 0 ? (targetDist - currentDist) / segLen : 0;
-        const clampedT = Math.max(0, Math.min(1, t));
-        
-        const p1 = shape[segmentIdx];
-        const p2 = shape[(segmentIdx + 1) % shape.length];
-        
-        resampled.push({
-            x: p1.x + clampedT * (p2.x - p1.x),
-            y: p1.y + clampedT * (p2.y - p1.y)
-        });
-    }
-    
-    return resampled;
 }
 
 /**
@@ -2625,7 +2539,7 @@ function expCSV() {
 }
 
 function expJSON() {
-    const ex = { exportDate: new Date().toISOString(), version: '4.1', settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize, radialResolution }, allData };
+    const ex = { exportDate: new Date().toISOString(), version: '5.1', settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize, radialResolution }, allData };
     saveAs(new Blob([JSON.stringify(ex, null, 2)], { type: 'application/json' }), `contour_${new Date().toISOString().slice(0, 10)}.json`);
     status('JSON exported');
 }
@@ -2913,31 +2827,7 @@ async function loadFromCloud(tracerNameOverride = null, mergeMode = false, fromC
             }
             
             if (data.settings && !mergeMode) {
-                if (data.settings.resampleRate) {
-                    resampleRate = data.settings.resampleRate;
-                    document.getElementById('resample-slider').value = resampleRate;
-                    document.getElementById('resample-val').textContent = resampleRate;
-                }
-                if (data.settings.imageOpacity !== undefined) {
-                    IMAGE_OPACITY = data.settings.imageOpacity / 100;
-                    document.getElementById('img-opacity-slider').value = data.settings.imageOpacity;
-                    document.getElementById('img-opacity-val').textContent = data.settings.imageOpacity + '%';
-                }
-                if (data.settings.shapeOpacity !== undefined) {
-                    SHAPE_OPACITY = data.settings.shapeOpacity / 100;
-                    document.getElementById('shape-opacity-slider').value = data.settings.shapeOpacity;
-                    document.getElementById('shape-opacity-val').textContent = data.settings.shapeOpacity + '%';
-                }
-                if (data.settings.brushSize) {
-                    brushSize = data.settings.brushSize;
-                    document.getElementById('brush-slider').value = brushSize;
-                    document.getElementById('brush-val').textContent = brushSize;
-                }
-                if (data.settings.radialResolution) {
-                    radialResolution = data.settings.radialResolution;
-                    document.getElementById('radial-res-slider').value = radialResolution;
-                    document.getElementById('radial-res-val').textContent = radialResolution;
-                }
+                applySettings(data.settings);
             }
             
             // Rebuild tabs
@@ -3037,10 +2927,10 @@ async function loadAllTracers() {
     }
     
     try {
-        setCloudStatus('☁️ Loading all coordinate data...');
-        status('Loading all data from CoordinateData...');
+        setCloudStatus('☁️ Loading all coordinate data (excluding Final)...');
+        status('Loading all data from CoordinateData (excluding Final)...');
         
-        const response = await fetch(`${url}?action=loadAllCoordinates`);
+        const response = await fetch(`${url}?action=loadAllCoordinates&excludeTracer=Final`);
         const data = await response.json();
         
         if (data.error) {
@@ -3053,8 +2943,9 @@ async function loadAllTracers() {
             allData = data.allData;
             rebuildTabsFromData();
             
-            setCloudStatus(`✅ Loaded ${data.pointCount} points from ${data.tracerCount} tracers`);
-            status(`Loaded all data: ${data.pointCount} points from ${data.tracerCount} tracers`);
+            const excludeNote = data.excludedTracers ? ` (excluded: ${data.excludedTracers.join(', ')})` : '';
+            setCloudStatus(`✅ Loaded ${data.pointCount} points from ${data.tracerCount} tracers${excludeNote}`);
+            status(`Loaded all data: ${data.pointCount} points from ${data.tracerCount} tracers${excludeNote}`);
         } else {
             setCloudStatus('⚠️ No coordinate data found');
         }
@@ -3085,7 +2976,8 @@ async function listTracers() {
             data.tracers.forEach(t => {
                 const opt = document.createElement('option');
                 opt.value = t.name;
-                opt.textContent = `${t.name} (${t.totalShapes} shapes, saved ${new Date(t.savedAt).toLocaleDateString()})`;
+                const protectedLabel = t.isProtected ? ' [PROTECTED]' : '';
+                opt.textContent = `${t.name}${protectedLabel} (${t.totalShapes} shapes, saved ${new Date(t.savedAt).toLocaleDateString()})`;
                 select.appendChild(opt);
             });
             setCloudStatus(`✅ Found ${data.tracers.length} tracers`);
@@ -3094,40 +2986,6 @@ async function listTracers() {
         }
     } catch (e) {
         setCloudStatus('❌ Failed to list tracers: ' + e.message, true);
-    }
-}
-
-async function mergeAllData() {
-    const url = getCloudUrl();
-    if (!url) {
-        setCloudStatus('❌ Enter Apps Script URL', true);
-        return;
-    }
-    
-    if (!confirm('This will load and merge ALL tracers\' data. Your current unsaved work will be replaced. Continue?')) {
-        return;
-    }
-    
-    try {
-        setCloudStatus('☁️ Merging all tracer data...');
-        status('Merging all data...');
-        
-        const response = await fetch(`${url}?action=mergeAll`);
-        const data = await response.json();
-        
-        if (data.error) {
-            setCloudStatus('❌ ' + data.error, true);
-            return;
-        }
-        
-        if (data.allData) {
-            allData = data.allData;
-            rebuildTabsFromData();
-            setCloudStatus(`✅ Merged data from ${data.tracerCount} tracers`);
-            status('All data merged');
-        }
-    } catch (e) {
-        setCloudStatus('❌ Merge failed: ' + e.message, true);
     }
 }
 
@@ -3680,7 +3538,6 @@ function init() {
     document.getElementById('cloud-save').onclick = saveToCloud;
     document.getElementById('cloud-load').onclick = () => loadFromCloud(null, false, true); // Load from CoordinateData
     document.getElementById('cloud-list').onclick = listTracers;
-    document.getElementById('cloud-merge').onclick = mergeAllData;
     document.getElementById('cloud-load-all').onclick = loadAllTracers;
     document.getElementById('cloud-load-other').onclick = loadSelectedTracer;
     document.getElementById('cloud-add-other').onclick = addSelectedTracer;
