@@ -117,6 +117,15 @@ Individual PNG files can be loaded directly. Previously exported JSON files can 
 
 ## 5. Manual Tracing
 
+Several QOL changes were added to improve the manual tracing experience without impacting data integrity:
+
+  Pointer Events API replaces the dual mouse+touch listener setup. pointerdown/pointermove/pointerup/pointerleave/pointercancel handle mouse, touch, and stylus through a single code path. The getCoalescedEvents() call recovers intermediate positions that the browser batched between animation frames, giving denser positional sampling without any synthesized or interpolated points. These are real hardware samples that were previously discarded.
+  3-point moving average smoothing filters each incoming point through a sliding window of the last 3 raw positions. At typical stylus event rates (120-240 Hz), the window spans roughly 12-25ms of input. The positional shift is sub-pixel in magnitude. This is negligible relative to the downstream resample() which completely re-interpolates the path at 1000 uniform arc-length intervals. The smoothed points are what get stored in curPath, so the visual stroke and stored data are identical.
+  Incremental segment rendering draws only the new line segment on each event (beginPath + moveTo + lineTo + stroke), rather than accumulating a single growing path and re-stroking it from the beginning every frame. The old approach had O(n) rendering cost per event where n is the total path length. The new approach is O(1) per event. On long strokes this eliminates the progressive lag that was most noticeable toward the end of a trace.
+  Pointer ID tracking prevents multi-touch interference. If a second finger touches the screen while a stylus stroke is active, the second pointer's events are ignored. Only the pointer that initiated the stroke can move or end it.
+  will-change: transform on the canvas CSS hints the browser compositor to promote the canvas to its own GPU layer, reducing repaint cost on tablet hardware.
+  None of these changes alter the data pipeline. curPath still collects canvas-pixel coordinates during the stroke, canvasToUnit converts them to grid coordinates, and resample re-interpolates to 1000 uniform points. The stored contours pass through exactly the same functions as before.
+
 ### Point Capture
 
 The researcher selects a color (red or blue) and draws on the canvas using mouse or stylus input. Points are captured on every `mousemove` or `touchmove` event during an active stroke. The application supports touch input for tablet use.
