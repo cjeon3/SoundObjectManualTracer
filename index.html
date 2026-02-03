@@ -11,7 +11,7 @@
         * { -webkit-tap-highlight-color: transparent; }
         body { min-height: 100vh; font-family: ui-sans-serif, system-ui, sans-serif; background: #f3f4f6; }
         #canvas-container { max-width: 100%; width: 100%; margin: 0 auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-radius: 0.75rem; overflow: hidden; background: #fff; touch-action: none; aspect-ratio: 1; }
-        #drawing-canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+        #drawing-canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; will-change: transform; }
         input[type="range"] { -webkit-appearance: none; background: transparent; cursor: pointer; width: 100%; height: 40px; }
         input[type="range"]::-webkit-slider-runnable-track { background: linear-gradient(to right, #3b82f6, #8b5cf6); height: 8px; border-radius: 4px; }
         input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 24px; width: 24px; background: #000; border: 3px solid #fff; border-radius: 50%; cursor: grab; margin-top: -8px; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
@@ -827,6 +827,12 @@ function calculateImageOverlap(img, data) {
 // ============================================
 // DRAWING EVENTS
 // ============================================
+
+// Smoothing buffer for moving-average filter (visual + stored)
+// Window size of 3 balances noise reduction vs responsiveness
+const SMOOTH_WINDOW = 3;
+let smoothBuffer = [];
+
 function getPoint(e) {
     const r = canvas.getBoundingClientRect();
     let cx, cy;
@@ -836,31 +842,98 @@ function getPoint(e) {
     return { x: (cx - r.left) * (CANVAS_SIZE / r.width), y: (cy - r.top) * (CANVAS_SIZE / r.height) };
 }
 
+/**
+ * Apply moving-average smoothing to reduce stylus/touch digitizer jitter.
+ * Averages the last SMOOTH_WINDOW points to produce a smoothed position.
+ * The smoothing magnitude is sub-pixel (typically <1px shift) and is
+ * negligible relative to the downstream resample() which re-interpolates
+ * the entire path at 1000 uniform arc-length intervals.
+ */
+function smoothPoint(rawPt) {
+    smoothBuffer.push(rawPt);
+    if (smoothBuffer.length > SMOOTH_WINDOW) {
+        smoothBuffer.shift();
+    }
+    let sx = 0, sy = 0;
+    for (let i = 0; i < smoothBuffer.length; i++) {
+        sx += smoothBuffer[i].x;
+        sy += smoothBuffer[i].y;
+    }
+    return { x: sx / smoothBuffer.length, y: sy / smoothBuffer.length };
+}
+
+// Track active pointer to ignore secondary touches on tablets
+let activePointerId = null;
+
 function startDraw(e) {
     if (!drawingOn || !curParticipant) return;
+    // Ignore if we're already tracking a pointer (prevents multi-touch issues)
+    if (isDrawing) return;
     isDrawing = true;
+    activePointerId = e.pointerId;
+    smoothBuffer = [];
     const p = getPoint(e);
-    curPath = [p];
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y);
+    const sp = smoothPoint(p);
+    curPath = [sp];
+    // Set up stroke style once; we will draw incremental segments
     ctx.strokeStyle = COLORS[selColor];
     ctx.lineWidth = brushSize;
     ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    // Record last drawn position for incremental rendering
+    lastDrawnPt = sp;
     e.preventDefault();
 }
+
+// Last point rendered on canvas, used for incremental segment drawing
+let lastDrawnPt = null;
 
 function doDraw(e) {
-    if (!isDrawing) return;
-    const p = getPoint(e);
-    curPath.push(p);
-    ctx.lineTo(p.x, p.y);
-    ctx.stroke();
+    if (!isDrawing || e.pointerId !== activePointerId) return;
     e.preventDefault();
+
+    // Collect all points from this event.
+    // getCoalescedEvents() returns intermediate positions the browser
+    // batched between frames (Pointer Events API). This recovers
+    // positional data that would otherwise be lost between animation frames.
+    let rawPoints = [];
+    if (e.getCoalescedEvents) {
+        const coalesced = e.getCoalescedEvents();
+        if (coalesced.length > 0) {
+            for (let i = 0; i < coalesced.length; i++) {
+                rawPoints.push(getPoint(coalesced[i]));
+            }
+        }
+    }
+    // Fallback: if no coalesced events, use the event itself
+    if (rawPoints.length === 0) {
+        rawPoints.push(getPoint(e));
+    }
+
+    // Process each raw point: smooth it, store it, draw incremental segment
+    for (let i = 0; i < rawPoints.length; i++) {
+        const sp = smoothPoint(rawPoints[i]);
+        curPath.push(sp);
+
+        // Draw only the new segment (constant cost, not proportional to path length)
+        if (lastDrawnPt) {
+            ctx.beginPath();
+            ctx.moveTo(lastDrawnPt.x, lastDrawnPt.y);
+            ctx.lineTo(sp.x, sp.y);
+            ctx.stroke();
+        }
+        lastDrawnPt = sp;
+    }
 }
 
-function endDraw() {
+function endDraw(e) {
     if (!isDrawing) return;
+    // Only end for the pointer that started the stroke
+    if (e && e.pointerId !== undefined && e.pointerId !== activePointerId) return;
     isDrawing = false;
+    lastDrawnPt = null;
+    activePointerId = null;
+    smoothBuffer = [];
     if (curPath.length > 5) {
         const d = curData();
         undoStack.push({ key: dataKey(), data: JSON.parse(JSON.stringify(d)) });
@@ -3012,7 +3085,7 @@ async function listTracers() {
             data.tracers.forEach(t => {
                 const opt = document.createElement('option');
                 opt.value = t.name;
-                opt.textContent = `${t.name} (${t.shapeCount} shapes, saved ${new Date(t.savedAt).toLocaleDateString()})`;
+                opt.textContent = `${t.name} (${t.totalShapes} shapes, saved ${new Date(t.savedAt).toLocaleDateString()})`;
                 select.appendChild(opt);
             });
             setCloudStatus(`✅ Found ${data.tracers.length} tracers`);
@@ -3562,13 +3635,12 @@ function init() {
     ctx = canvas.getContext('2d');
     canvas.width = canvas.height = CANVAS_SIZE;
     
-    canvas.addEventListener('mousedown', startDraw);
-    canvas.addEventListener('mousemove', doDraw);
-    canvas.addEventListener('mouseup', endDraw);
-    canvas.addEventListener('mouseleave', endDraw);
-    canvas.addEventListener('touchstart', startDraw, { passive: false });
-    canvas.addEventListener('touchmove', doDraw, { passive: false });
-    canvas.addEventListener('touchend', endDraw);
+    // Pointer Events API: unified mouse/touch/stylus with coalesced event support
+    canvas.addEventListener('pointerdown', startDraw);
+    canvas.addEventListener('pointermove', doDraw);
+    canvas.addEventListener('pointerup', endDraw);
+    canvas.addEventListener('pointerleave', endDraw);
+    canvas.addEventListener('pointercancel', endDraw);
     
     document.getElementById('color-red').onclick = () => { selColor = 'red'; document.getElementById('color-red').classList.add('selected'); document.getElementById('color-blue').classList.remove('selected'); };
     document.getElementById('color-blue').onclick = () => { selColor = 'blue'; document.getElementById('color-blue').classList.add('selected'); document.getElementById('color-red').classList.remove('selected'); };
