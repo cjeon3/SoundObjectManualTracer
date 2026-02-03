@@ -38,7 +38,7 @@
         <header class="text-center mb-6">
             <h1 class="text-4xl font-extrabold text-blue-800 mb-2">Sound Object Contour Tracer</h1>
             <p class="text-xl font-semibold text-gray-600">UCI Hearing & Speech Lab</p>
-            <p class="text-sm text-gray-400 mt-1">v4.6 — Last updated: January 15, 2026</p>
+            <p class="text-sm text-gray-400 mt-1">v5.0 — Last updated: January 15, 2026</p>
         </header>
         
         <!-- Upload -->
@@ -135,6 +135,11 @@
                     <label class="font-bold text-gray-800">Shape Opacity: <span id="shape-opacity-val" class="text-xl text-green-600">30%</span></label>
                     <input id="shape-opacity-slider" type="range" min="0" max="100" value="30">
                     <div class="slider-labels"><span>0%</span><span>50%</span><span>100%</span></div>
+                </div>
+                <div class="bg-orange-50 p-4 rounded-xl">
+                    <label class="font-bold text-gray-800">Radial Resolution: <span id="radial-res-val" class="text-xl text-orange-600">720</span></label>
+                    <input id="radial-res-slider" type="range" min="36" max="3600" step="36" value="720">
+                    <div class="slider-labels"><span>36</span><span>720</span><span>3600</span></div>
                 </div>
             </div>
             <div class="flex flex-wrap gap-2 pt-4 border-t">
@@ -327,6 +332,7 @@ let showGrid = true, drawingOn = true, isDrawing = false;
 let selColor = 'red', brushSize = 5, resampleRate = 1000;
 let IMAGE_OPACITY = 0.5;
 let SHAPE_OPACITY = 0.3; // Opacity for background traced shapes (0-1)
+let radialResolution = 720; // Number of angles for radial averaging (higher = more precise)
 let curPath = [];
 let allData = {}, images = {}, trialMapping = {};
 let curParticipant = null, curTrial = null, curFreq = null;
@@ -932,20 +938,25 @@ function parseFreq(fn) {
 async function processZip(zipFile) {
     const zip = await JSZip.loadAsync(zipFile);
     const fileInfos = [];
+    let nestedZipCount = 0;
     
-    async function extractFromZip(z, pathPrefix = '') {
+    async function extractFromZip(z, pathPrefix = '', depth = 0) {
+        const indent = '  '.repeat(depth);
         const entries = Object.entries(z.files);
-        log(`Scanning ${entries.length} entries in ZIP...`);
+        log(`${indent}Scanning ${entries.length} entries at depth ${depth}...`);
         
         for (const [path, file] of entries) {
-            if (file.dir) continue;
+            if (file.dir) {
+                log(`${indent}  [DIR] ${path}`);
+                continue;
+            }
             const fullPath = pathPrefix + path;
             
             if (path.toLowerCase().endsWith('.png')) {
                 const filename = path.split('/').pop();
                 const pathParts = fullPath.split('/').filter(p => p.length > 0);
                 
-                log(`Processing: ${fullPath}`);
+                log(`${indent}  [PNG] ${fullPath}`);
                 
                 // Find the participant folder with format "Name_Number_..." 
                 let folderNum = null;
@@ -962,7 +973,7 @@ async function processZip(zipFile) {
                     if (match) {
                         partPath = match[1].trim();
                         folderNum = parseInt(match[2]);
-                        log(`  Matched folder pattern: "${part}" → participant="${partPath}", folderNum=${folderNum}`);
+                        log(`${indent}    Matched folder pattern: "${part}" → participant="${partPath}", folderNum=${folderNum}`);
                         break;
                     }
                     
@@ -973,7 +984,7 @@ async function processZip(zipFile) {
                         if (i > 0) {
                             partPath = pathParts[i - 1];
                         }
-                        log(`  Found numeric folder: ${part} → folderNum=${folderNum}, participant=${partPath}`);
+                        log(`${indent}    Found numeric folder: ${part} → folderNum=${folderNum}, participant=${partPath}`);
                         break;
                     }
                 }
@@ -989,24 +1000,31 @@ async function processZip(zipFile) {
                     fullPath
                 });
                 
-                log(`  Result: participant="${participant}", folderNum=${folderNum}, freq=${parseFreq(filename)}Hz`);
+                log(`${indent}    Result: participant="${participant}", folderNum=${folderNum}, freq=${parseFreq(filename)}Hz`);
                 
             } else if (path.toLowerCase().endsWith('.zip')) {
                 // Handle nested ZIP files
+                nestedZipCount++;
+                log(`${indent}  [NESTED ZIP] ${path}`);
                 try {
-                    log(`Found nested ZIP: ${path}`);
                     const blob = await file.async('blob');
                     const nested = await JSZip.loadAsync(blob);
-                    await extractFromZip(nested, fullPath.replace(/\.zip$/i, '/'));
+                    log(`${indent}    Successfully loaded nested ZIP, processing contents...`);
+                    await extractFromZip(nested, fullPath.replace(/\.zip$/i, '/'), depth + 1);
+                    log(`${indent}    Finished processing nested ZIP: ${path}`);
                 } catch (e) {
                     console.warn('Nested ZIP error:', path, e);
-                    log(`Warning: Could not process nested ZIP: ${path}`);
+                    log(`${indent}    ❌ Warning: Could not process nested ZIP: ${path} - ${e.message}`);
                 }
+            } else {
+                // Log other file types for debugging
+                log(`${indent}  [SKIP] ${path} (not PNG or ZIP)`);
             }
         }
     }
     
     await extractFromZip(zip);
+    log(`=== ZIP Processing Complete: ${fileInfos.length} PNG files, ${nestedZipCount} nested ZIPs processed ===`);
     return fileInfos;
 }
 
@@ -1183,6 +1201,11 @@ function handleJson(file) {
                     brushSize = d.settings.brushSize;
                     document.getElementById('brush-slider').value = brushSize;
                     document.getElementById('brush-val').textContent = brushSize;
+                }
+                if (d.settings.radialResolution) {
+                    radialResolution = d.settings.radialResolution;
+                    document.getElementById('radial-res-slider').value = radialResolution;
+                    document.getElementById('radial-res-val').textContent = radialResolution;
                 }
             }
             
@@ -1484,19 +1507,19 @@ function doBulk() {
         
         // Calculate simple averages
         if (frequencyAverages[hz].redShapes.length > 0) {
-            const avgShape = simpleAverageShapes(frequencyAverages[hz].redShapes, resampleRate);
+            const avgShape = simpleAverageShapes(frequencyAverages[hz].redShapes);
             if (avgShape) {
                 frequencyAverages[hz].redAvg = avgShape;
                 frequencyAverages[hz].redCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hz].redArea = calculateArea(avgShape);
+                frequencyAverages[hz].redArea = calculateAreaShoelace(avgShape);
             }
         }
         if (frequencyAverages[hz].blueShapes.length > 0) {
-            const avgShape = simpleAverageShapes(frequencyAverages[hz].blueShapes, resampleRate);
+            const avgShape = simpleAverageShapes(frequencyAverages[hz].blueShapes);
             if (avgShape) {
                 frequencyAverages[hz].blueAvg = avgShape;
                 frequencyAverages[hz].blueCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hz].blueArea = calculateArea(avgShape);
+                frequencyAverages[hz].blueArea = calculateAreaShoelace(avgShape);
             }
         }
     }
@@ -1525,9 +1548,15 @@ let frequencyAverages = {};
  * 4. Centroid is computed as arithmetic mean of resampled coordinates
  * 
  * This ensures equal contribution from all portions of the drawn path.
+ * 
+ * @param {Array} shape - Array of {x, y} points
+ * @returns {{x: number, y: number}|null} Centroid coordinates, or null if invalid
  */
 function calculateCentroid(shape) {
-    if (!shape || shape.length === 0) return { x: 0, y: 0 };
+    // Return null for invalid input (caller should handle)
+    if (!shape || shape.length === 0) return null;
+    
+    // Single point: centroid is that point
     if (shape.length === 1) return { x: shape[0].x, y: shape[0].y };
     
     // Step 1: Calculate total path length
@@ -1543,11 +1572,13 @@ function calculateCentroid(shape) {
     }
     
     // Handle degenerate case (all points at same location)
+    // Return the first point's coordinates (they're all the same)
     if (totalLength < 0.0001) {
         return { x: shape[0].x, y: shape[0].y };
     }
     
     // Step 2: Determine number of samples
+    // Use at least 100 samples, or 1 sample per 0.1 units of path length
     const numSamples = Math.max(100, Math.round(totalLength / 0.1));
     const intervalLength = totalLength / numSamples;
     
@@ -1590,9 +1621,14 @@ function calculateCentroid(shape) {
 }
 
 /**
- * Calculate area of a shape using shoelace formula
+ * Calculate area of a shape using the shoelace formula
+ * Computes the signed area of a polygon from the cross-products of 
+ * consecutive vertex coordinates. Returns the absolute value divided by two.
+ * 
+ * @param {Array} shape - Array of {x, y} points
+ * @returns {number} Area in square grid units
  */
-function calculateArea(shape) {
+function calculateAreaShoelace(shape) {
     if (!shape || shape.length < 3) return 0;
     let area = 0;
     for (let i = 0; i < shape.length; i++) {
@@ -1670,44 +1706,59 @@ function normalizeContour(shape) {
  * 3. Sample radial distance at uniform angles (0°, 1°, 2°, ... 359°)
  * 4. Average the radial distances at each angle across all shapes
  * 5. Convert back to Cartesian coordinates at the average centroid position
+ * 6. Normalize output to start at highest Y (with highest X tiebreaker), counterclockwise
  * 
  * This method avoids point correspondence issues because we're averaging
  * "how far the shape extends in each direction" rather than trying to
  * match points along the perimeter.
  */
-function simpleAverageShapes(shapes, targetLength = 360) {
+function simpleAverageShapes(shapes) {
     if (!shapes || shapes.length === 0) return null;
     
-    // Filter out invalid shapes
+    // Filter out invalid shapes (need at least 3 points to form a polygon)
     const validShapes = shapes.filter(s => s && s.length >= 3);
     if (validShapes.length === 0) return null;
     
     if (validShapes.length === 1) {
-        return validShapes[0];
+        return normalizeContour(validShapes[0]);
     }
     
     // Step 1: Calculate centroid of each shape
     const centroids = validShapes.map(shape => calculateCentroid(shape));
     
-    // Calculate average centroid position
-    let avgCentroidX = 0, avgCentroidY = 0;
-    for (const c of centroids) {
-        avgCentroidX += c.x;
-        avgCentroidY += c.y;
+    // Filter out any shapes with invalid centroids (safeguard)
+    const validIndices = [];
+    for (let i = 0; i < centroids.length; i++) {
+        if (centroids[i] && isFinite(centroids[i].x) && isFinite(centroids[i].y)) {
+            validIndices.push(i);
+        }
     }
-    avgCentroidX /= centroids.length;
-    avgCentroidY /= centroids.length;
+    
+    if (validIndices.length === 0) return null;
+    if (validIndices.length === 1) {
+        return normalizeContour(validShapes[validIndices[0]]);
+    }
+    
+    // Calculate average centroid position (only from valid centroids)
+    let avgCentroidX = 0, avgCentroidY = 0;
+    for (const idx of validIndices) {
+        avgCentroidX += centroids[idx].x;
+        avgCentroidY += centroids[idx].y;
+    }
+    avgCentroidX /= validIndices.length;
+    avgCentroidY /= validIndices.length;
     
     // Step 2 & 3: Convert each shape to radial samples (distance at each angle)
-    const numAngles = 360;
-    const radialSamples = validShapes.map((shape, shapeIdx) => {
+    const numAngles = radialResolution;
+    const radialSamples = validIndices.map(shapeIdx => {
+        const shape = validShapes[shapeIdx];
         const centroid = centroids[shapeIdx];
         
         // For each angle, find the distance to the shape boundary
         const distances = new Array(numAngles).fill(0);
         
         for (let angleDeg = 0; angleDeg < numAngles; angleDeg++) {
-            const angleRad = angleDeg * Math.PI / 180;
+            const angleRad = (angleDeg / numAngles) * 2 * Math.PI;
             const rayDirX = Math.cos(angleRad);
             const rayDirY = Math.sin(angleRad);
             
@@ -1749,10 +1800,10 @@ function simpleAverageShapes(shapes, targetLength = 360) {
     }
     
     // Step 5: Convert back to Cartesian coordinates
-    // The radial method naturally produces counterclockwise order (0° to 359°)
+    // Angles span 0 to 2*PI in numAngles steps, producing counterclockwise order
     const rawAvgShape = [];
     for (let angleDeg = 0; angleDeg < numAngles; angleDeg++) {
-        const angleRad = angleDeg * Math.PI / 180;
+        const angleRad = (angleDeg / numAngles) * 2 * Math.PI;
         const dist = avgDistances[angleDeg];
         rawAvgShape.push({
             x: avgCentroidX + dist * Math.cos(angleRad),
@@ -1761,10 +1812,33 @@ function simpleAverageShapes(shapes, targetLength = 360) {
     }
     
     // Step 6: Normalize output to start at highest Y point (with highest X as tiebreaker)
-    // and ensure counterclockwise direction
+    // and ENFORCE counterclockwise direction regardless of input drawing direction.
+    // normalizeContour:
+    //   a) Finds highest Y point (highest X tiebreaker)
+    //   b) Rotates array so that point becomes index 0
+    //   c) Checks signed area; reverses if clockwise
     const avgShape = normalizeContour(rawAvgShape);
     
-    console.log(`[Radial Average] ${validShapes.length} shapes averaged, avg centroid: (${avgCentroidX.toFixed(2)}, ${avgCentroidY.toFixed(2)})`);
+    // Step 7: Verify normalization (defensive check)
+    if (avgShape && avgShape.length >= 3) {
+        let verifySignedArea = 0;
+        for (let i = 0; i < avgShape.length; i++) {
+            const j = (i + 1) % avgShape.length;
+            verifySignedArea += avgShape[i].x * avgShape[j].y;
+            verifySignedArea -= avgShape[j].x * avgShape[i].y;
+        }
+        if (verifySignedArea < 0) {
+            console.warn('[Radial Average] WARNING: Output shape is clockwise after normalization - forcing CCW');
+            const fixed = [avgShape[0]];
+            for (let i = avgShape.length - 1; i > 0; i--) {
+                fixed.push(avgShape[i]);
+            }
+            console.log(`[Radial Average] ${validIndices.length} shapes averaged, avg centroid: (${avgCentroidX.toFixed(2)}, ${avgCentroidY.toFixed(2)})`);
+            return fixed;
+        }
+    }
+    
+    console.log(`[Radial Average] ${validIndices.length} shapes averaged, avg centroid: (${avgCentroidX.toFixed(2)}, ${avgCentroidY.toFixed(2)})`);
     
     return avgShape;
 }
@@ -1922,19 +1996,19 @@ function generateFrequencyAverages() {
         
         // Calculate simple averages
         if (frequencyAverages[hzKey].redShapes.length > 0) {
-            const avgShape = simpleAverageShapes(frequencyAverages[hzKey].redShapes, resampleRate);
+            const avgShape = simpleAverageShapes(frequencyAverages[hzKey].redShapes);
             if (avgShape) {
                 frequencyAverages[hzKey].redAvg = avgShape;
                 frequencyAverages[hzKey].redCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hzKey].redArea = calculateArea(avgShape);
+                frequencyAverages[hzKey].redArea = calculateAreaShoelace(avgShape);
             }
         }
         if (frequencyAverages[hzKey].blueShapes.length > 0) {
-            const avgShape = simpleAverageShapes(frequencyAverages[hzKey].blueShapes, resampleRate);
+            const avgShape = simpleAverageShapes(frequencyAverages[hzKey].blueShapes);
             if (avgShape) {
                 frequencyAverages[hzKey].blueAvg = avgShape;
                 frequencyAverages[hzKey].blueCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hzKey].blueArea = calculateArea(avgShape);
+                frequencyAverages[hzKey].blueArea = calculateAreaShoelace(avgShape);
             }
         }
     }
@@ -1977,8 +2051,8 @@ function updateFreqCompositesGallery() {
         hasData = true;
         
         // Calculate area and centroid on the AVERAGE shapes
-        const redAvgArea = data.redAvg ? calculateArea(data.redAvg) : 0;
-        const blueAvgArea = data.blueAvg ? calculateArea(data.blueAvg) : 0;
+        const redAvgArea = data.redAvg ? calculateAreaShoelace(data.redAvg) : 0;
+        const blueAvgArea = data.blueAvg ? calculateAreaShoelace(data.blueAvg) : 0;
         const redCentroid = data.redAvg ? calculateCentroid(data.redAvg) : null;
         const blueCentroid = data.blueAvg ? calculateCentroid(data.blueAvg) : null;
         
@@ -2478,7 +2552,7 @@ function expCSV() {
 }
 
 function expJSON() {
-    const ex = { exportDate: new Date().toISOString(), version: '4.1', settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize }, allData };
+    const ex = { exportDate: new Date().toISOString(), version: '4.1', settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize, radialResolution }, allData };
     saveAs(new Blob([JSON.stringify(ex, null, 2)], { type: 'application/json' }), `contour_${new Date().toISOString().slice(0, 10)}.json`);
     status('JSON exported');
 }
@@ -2646,7 +2720,7 @@ async function saveToCloud() {
         tracerName: tracerName,
         savedAt: new Date().toISOString(),
         allData: allData,
-        settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize }
+        settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize, radialResolution }
     };
     
     // Log the size of the payload
@@ -2785,6 +2859,11 @@ async function loadFromCloud(tracerNameOverride = null, mergeMode = false, fromC
                     brushSize = data.settings.brushSize;
                     document.getElementById('brush-slider').value = brushSize;
                     document.getElementById('brush-val').textContent = brushSize;
+                }
+                if (data.settings.radialResolution) {
+                    radialResolution = data.settings.radialResolution;
+                    document.getElementById('radial-res-slider').value = radialResolution;
+                    document.getElementById('radial-res-val').textContent = radialResolution;
                 }
             }
             
@@ -3054,6 +3133,428 @@ function loadCloudSettings() {
 }
 
 // ============================================
+// TEST FUNCTIONS - Run from console: runContourTests()
+// ============================================
+
+/**
+ * Test contour normalization and averaging
+ * Creates two identical squares:
+ * - Shape 1: Top-left area, drawn CLOCKWISE
+ * - Shape 2: Bottom-right area, drawn COUNTER-CLOCKWISE
+ * 
+ * If normalization works correctly:
+ * - Both should be normalized to start at highest Y (with highest X tiebreaker)
+ * - Both should be counterclockwise
+ * - The average should be centered between them, NOT collapsed/cancelled
+ */
+function runContourTests() {
+    console.log('='.repeat(60));
+    console.log('CONTOUR NORMALIZATION AND AVERAGING TESTS');
+    console.log('='.repeat(60));
+    
+    // Test 1: Verify normalizeContour with clockwise vs counterclockwise input
+    console.log('\n--- TEST 1: normalizeContour direction handling ---');
+    
+    // Square at (-5, 5) to (-3, 3) - top-left area
+    // Drawn CLOCKWISE (starting top-left, going right)
+    const squareCW = [
+        { x: -5, y: 5 },  // top-left (highest Y, but not highest X among highest Y)
+        { x: -3, y: 5 },  // top-right (highest Y AND highest X) <- should become start
+        { x: -3, y: 3 },  // bottom-right
+        { x: -5, y: 3 }   // bottom-left
+    ];
+    
+    // Same square drawn COUNTER-CLOCKWISE (starting top-left, going down)
+    const squareCCW = [
+        { x: -5, y: 5 },  // top-left
+        { x: -5, y: 3 },  // bottom-left
+        { x: -3, y: 3 },  // bottom-right
+        { x: -3, y: 5 }   // top-right (highest Y AND highest X) <- should become start
+    ];
+    
+    const normalizedCW = normalizeContour(squareCW);
+    const normalizedCCW = normalizeContour(squareCCW);
+    
+    console.log('Input CW (clockwise):', JSON.stringify(squareCW));
+    console.log('Normalized CW:', JSON.stringify(normalizedCW));
+    console.log('Input CCW (counter-clockwise):', JSON.stringify(squareCCW));
+    console.log('Normalized CCW:', JSON.stringify(normalizedCCW));
+    
+    // Check: Both should start at (-3, 5) - the highest Y with highest X
+    const cw_start_correct = normalizedCW[0].x === -3 && normalizedCW[0].y === 5;
+    const ccw_start_correct = normalizedCCW[0].x === -3 && normalizedCCW[0].y === 5;
+    
+    console.log(`\nCW starts at highest Y, highest X (-3, 5): ${cw_start_correct ? '✅ PASS' : '❌ FAIL'}`);
+    console.log(`CCW starts at highest Y, highest X (-3, 5): ${ccw_start_correct ? '✅ PASS' : '❌ FAIL'}`);
+    
+    // Check winding direction (should be counterclockwise = positive signed area)
+    function getSignedArea(shape) {
+        let area = 0;
+        for (let i = 0; i < shape.length; i++) {
+            const j = (i + 1) % shape.length;
+            area += shape[i].x * shape[j].y;
+            area -= shape[j].x * shape[i].y;
+        }
+        return area / 2;
+    }
+    
+    const cw_area = getSignedArea(normalizedCW);
+    const ccw_area = getSignedArea(normalizedCCW);
+    
+    console.log(`\nNormalized CW signed area: ${cw_area.toFixed(4)} (positive = CCW): ${cw_area > 0 ? '✅ PASS' : '❌ FAIL'}`);
+    console.log(`Normalized CCW signed area: ${ccw_area.toFixed(4)} (positive = CCW): ${ccw_area > 0 ? '✅ PASS' : '❌ FAIL'}`);
+    
+    // Test 2: Averaging two identical shapes at different positions
+    console.log('\n--- TEST 2: Averaging shapes at different positions ---');
+    
+    // Shape 1: Square at top-left (-6, 6) to (-4, 4), drawn clockwise
+    const shape1 = [
+        { x: -6, y: 6 },
+        { x: -4, y: 6 },
+        { x: -4, y: 4 },
+        { x: -6, y: 4 }
+    ];
+    
+    // Shape 2: Same size square at bottom-right (4, -4) to (6, -6), drawn counter-clockwise
+    const shape2 = [
+        { x: 4, y: -4 },
+        { x: 4, y: -6 },
+        { x: 6, y: -6 },
+        { x: 6, y: -4 }
+    ];
+    
+    console.log('Shape 1 (top-left, CW):', JSON.stringify(shape1));
+    console.log('Shape 2 (bottom-right, CCW):', JSON.stringify(shape2));
+    
+    const centroid1 = calculateCentroid(shape1);
+    const centroid2 = calculateCentroid(shape2);
+    console.log(`\nShape 1 centroid: (${centroid1.x.toFixed(2)}, ${centroid1.y.toFixed(2)})`);
+    console.log(`Shape 2 centroid: (${centroid2.x.toFixed(2)}, ${centroid2.y.toFixed(2)})`);
+    
+    const avgShape = simpleAverageShapes([shape1, shape2]);
+    
+    if (avgShape) {
+        const avgCentroid = calculateCentroid(avgShape);
+        const avgArea = calculateAreaShoelace(avgShape);
+        
+        console.log(`\nAverage shape centroid: (${avgCentroid.x.toFixed(2)}, ${avgCentroid.y.toFixed(2)})`);
+        console.log(`Average shape area: ${avgArea.toFixed(4)}`);
+        
+        // Expected: centroid should be near (-1, 0) - midpoint of the two centroids
+        // (-5, 5) and (5, -5) average to (0, 0)
+        const expectedCentroidX = (centroid1.x + centroid2.x) / 2;
+        const expectedCentroidY = (centroid1.y + centroid2.y) / 2;
+        
+        console.log(`Expected centroid: (${expectedCentroidX.toFixed(2)}, ${expectedCentroidY.toFixed(2)})`);
+        
+        const centroidError = Math.sqrt(
+            Math.pow(avgCentroid.x - expectedCentroidX, 2) + 
+            Math.pow(avgCentroid.y - expectedCentroidY, 2)
+        );
+        
+        console.log(`Centroid error: ${centroidError.toFixed(4)} ${centroidError < 0.5 ? '✅ PASS' : '❌ FAIL'}`);
+        
+        // Area should be approximately the same as input shapes (2x2 = 4 square units)
+        const shape1Area = calculateAreaShoelace(shape1);
+        const shape2Area = calculateAreaShoelace(shape2);
+        
+        console.log(`\nShape 1 area: ${shape1Area.toFixed(4)}`);
+        console.log(`Shape 2 area: ${shape2Area.toFixed(4)}`);
+        console.log(`Average shape area: ${avgArea.toFixed(4)}`);
+        console.log(`Area preserved: ${Math.abs(avgArea - shape1Area) < 1 ? '✅ PASS' : '⚠️ CHECK (radial sampling may differ slightly)'}`);
+        
+        // Check that average shape starts at highest Y with highest X tiebreaker
+        let highestY = -Infinity;
+        let highestX = -Infinity;
+        for (const pt of avgShape) {
+            if (pt.y > highestY || (pt.y === highestY && pt.x > highestX)) {
+                highestY = pt.y;
+                highestX = pt.x;
+            }
+        }
+        
+        const startsCorrectly = Math.abs(avgShape[0].y - highestY) < 0.01 && 
+                                Math.abs(avgShape[0].x - highestX) < 0.01;
+        console.log(`\nAverage shape starts at highest Y, highest X: ${startsCorrectly ? '✅ PASS' : '❌ FAIL'}`);
+        console.log(`  First point: (${avgShape[0].x.toFixed(2)}, ${avgShape[0].y.toFixed(2)})`);
+        console.log(`  Highest Y, X: (${highestX.toFixed(2)}, ${highestY.toFixed(2)})`);
+        
+        // Check winding direction
+        const avgSignedArea = getSignedArea(avgShape);
+        console.log(`\nAverage shape signed area: ${avgSignedArea.toFixed(4)} (positive = CCW): ${avgSignedArea > 0 ? '✅ PASS' : '❌ FAIL'}`);
+        
+    } else {
+        console.log('❌ FAIL: simpleAverageShapes returned null');
+    }
+    
+    // Test 3: Worst-case input - shapes drawn from non-highest-Y starting points, clockwise
+    console.log('\n--- TEST 3: Non-highest-Y start, clockwise input ---');
+    console.log('Both shapes are identical 2x2 squares at origin but drawn differently:');
+    
+    // Shape A: Start at BOTTOM-LEFT, go CLOCKWISE
+    const shapeA = [
+        { x: -1, y: -1 },  // bottom-left (start here - NOT highest Y)
+        { x: -1, y: 1 },   // top-left (going up - clockwise)
+        { x: 1, y: 1 },    // top-right
+        { x: 1, y: -1 }    // bottom-right
+    ];
+    
+    // Shape B: Start at RIGHT, go CLOCKWISE
+    const shapeB = [
+        { x: 1, y: -1 },   // bottom-right (start here - NOT highest Y)
+        { x: -1, y: -1 },  // bottom-left (going left - clockwise)
+        { x: -1, y: 1 },   // top-left
+        { x: 1, y: 1 }     // top-right
+    ];
+    
+    console.log('Shape A (start bottom-left, CW):', JSON.stringify(shapeA));
+    console.log('Shape B (start bottom-right, CW):', JSON.stringify(shapeB));
+    
+    // Both should normalize to the same thing
+    const normA = normalizeContour(shapeA);
+    const normB = normalizeContour(shapeB);
+    
+    console.log('Normalized A:', JSON.stringify(normA));
+    console.log('Normalized B:', JSON.stringify(normB));
+    
+    // Both should start at (1, 1) - highest Y with highest X tiebreaker
+    const normA_startOk = normA[0].x === 1 && normA[0].y === 1;
+    const normB_startOk = normB[0].x === 1 && normB[0].y === 1;
+    console.log(`\nShape A starts at (1,1): ${normA_startOk ? '✅ PASS' : '❌ FAIL'} (got: ${normA[0].x}, ${normA[0].y})`);
+    console.log(`Shape B starts at (1,1): ${normB_startOk ? '✅ PASS' : '❌ FAIL'} (got: ${normB[0].x}, ${normB[0].y})`);
+    
+    // Both should be CCW
+    const normA_area = getSignedArea(normA);
+    const normB_area = getSignedArea(normB);
+    console.log(`Shape A CCW (positive area): ${normA_area > 0 ? '✅ PASS' : '❌ FAIL'} (${normA_area.toFixed(4)})`);
+    console.log(`Shape B CCW (positive area): ${normB_area > 0 ? '✅ PASS' : '❌ FAIL'} (${normB_area.toFixed(4)})`);
+    
+    // Both should produce identical normalized output
+    let pointsMatch = normA.length === normB.length;
+    if (pointsMatch) {
+        for (let i = 0; i < normA.length; i++) {
+            if (normA[i].x !== normB[i].x || normA[i].y !== normB[i].y) {
+                pointsMatch = false;
+                break;
+            }
+        }
+    }
+    console.log(`Normalized A === Normalized B: ${pointsMatch ? '✅ PASS' : '❌ FAIL'}`);
+    
+    // Now average them - result should be the same square
+    const avgAB = simpleAverageShapes([shapeA, shapeB]);
+    if (avgAB) {
+        const avgAB_centroid = calculateCentroid(avgAB);
+        const avgAB_areaShoelace = calculateAreaShoelace(avgAB);
+        const avgAB_signedArea = getSignedArea(avgAB);
+        
+        // Centroid should be near origin (0, 0)
+        const centroidNearOrigin = Math.abs(avgAB_centroid.x) < 0.2 && Math.abs(avgAB_centroid.y) < 0.2;
+        console.log(`\nAverage centroid near (0,0): ${centroidNearOrigin ? '✅ PASS' : '❌ FAIL'} (got: ${avgAB_centroid.x.toFixed(3)}, ${avgAB_centroid.y.toFixed(3)})`);
+        
+        // Area should be near 4 (2x2 square)
+        console.log(`Average area (shoelace): ${avgAB_areaShoelace.toFixed(4)} (expected ~4.0): ${Math.abs(avgAB_areaShoelace - 4) < 0.5 ? '✅ PASS' : '❌ FAIL'}`);
+        
+        // Must start at highest Y
+        let hY = -Infinity, hX = -Infinity;
+        for (const pt of avgAB) {
+            if (pt.y > hY || (pt.y === hY && pt.x > hX)) { hY = pt.y; hX = pt.x; }
+        }
+        const avgStartOk = Math.abs(avgAB[0].y - hY) < 0.01 && Math.abs(avgAB[0].x - hX) < 0.01;
+        console.log(`Average starts at highest Y, highest X: ${avgStartOk ? '✅ PASS' : '❌ FAIL'}`);
+        
+        // Must be CCW
+        console.log(`Average is CCW: ${avgAB_signedArea > 0 ? '✅ PASS' : '❌ FAIL'} (signed area: ${avgAB_signedArea.toFixed(4)})`);
+    } else {
+        console.log('❌ FAIL: Average returned null');
+    }
+    
+    // Test 4: Opposite positions, opposite directions - must NOT cancel out
+    console.log('\n--- TEST 4: CW at (1,1) + CCW at (-1,-1) must not cancel ---');
+    console.log('Two identical 2x2 squares at opposite positions with opposite winding:');
+    
+    // Shape C: 2x2 square centered at (1, 1), drawn CLOCKWISE
+    // Vertices: (0,2), (2,2), (2,0), (0,0) - starting top-left, going right (CW)
+    const shapeC = [
+        { x: 0, y: 2 },   // top-left
+        { x: 2, y: 2 },   // top-right
+        { x: 2, y: 0 },   // bottom-right
+        { x: 0, y: 0 }    // bottom-left
+    ];
+    
+    // Shape D: 2x2 square centered at (-1, -1), drawn COUNTER-CLOCKWISE
+    // Vertices: (-2,0), (-2,-2), (0,-2), (0,0) - starting top-left, going down (CCW)
+    const shapeD = [
+        { x: -2, y: 0 },  // top-left
+        { x: -2, y: -2 }, // bottom-left
+        { x: 0, y: -2 },  // bottom-right
+        { x: 0, y: 0 }    // top-right
+    ];
+    
+    console.log('Shape C (center 1,1 - CW):', JSON.stringify(shapeC));
+    console.log('Shape D (center -1,-1 - CCW):', JSON.stringify(shapeD));
+    
+    const centroidC = calculateCentroid(shapeC);
+    const centroidD = calculateCentroid(shapeD);
+    console.log(`Shape C centroid: (${centroidC.x.toFixed(2)}, ${centroidC.y.toFixed(2)})`);
+    console.log(`Shape D centroid: (${centroidD.x.toFixed(2)}, ${centroidD.y.toFixed(2)})`);
+    console.log(`Shape C area (shoelace): ${calculateAreaShoelace(shapeC).toFixed(4)}`);
+    console.log(`Shape D area (shoelace): ${calculateAreaShoelace(shapeD).toFixed(4)}`);
+    
+    const avgCD = simpleAverageShapes([shapeC, shapeD]);
+    if (avgCD) {
+        const avgCD_centroid = calculateCentroid(avgCD);
+        const avgCD_areaShoelace = calculateAreaShoelace(avgCD);
+        const avgCD_signedArea = getSignedArea(avgCD);
+        
+        // Critical check: area must NOT be near zero (not cancelled out)
+        const notCancelled = avgCD_areaShoelace > 2.0;
+        console.log(`\nArea NOT cancelled (> 2.0): ${notCancelled ? '✅ PASS' : '❌ FAIL'} (got: ${avgCD_areaShoelace.toFixed(4)})`);
+        
+        // Area should be near 4.0 (both inputs are 2x2 = 4 sq units)
+        const areaPreserved = Math.abs(avgCD_areaShoelace - 4) < 0.5;
+        console.log(`Area ~4.0 (preserved): ${areaPreserved ? '✅ PASS' : '⚠️ CHECK'} (got: ${avgCD_areaShoelace.toFixed(4)})`);
+        
+        // Centroid should be near (0, 0) - midpoint of (1,1) and (-1,-1)
+        const centroidNearOrigin = Math.abs(avgCD_centroid.x) < 0.3 && Math.abs(avgCD_centroid.y) < 0.3;
+        console.log(`Centroid near (0,0): ${centroidNearOrigin ? '✅ PASS' : '❌ FAIL'} (got: ${avgCD_centroid.x.toFixed(3)}, ${avgCD_centroid.y.toFixed(3)})`);
+        
+        // Must start at highest Y
+        let hY4 = -Infinity, hX4 = -Infinity;
+        for (const pt of avgCD) {
+            if (pt.y > hY4 || (pt.y === hY4 && pt.x > hX4)) { hY4 = pt.y; hX4 = pt.x; }
+        }
+        const avgCD_startOk = Math.abs(avgCD[0].y - hY4) < 0.01 && Math.abs(avgCD[0].x - hX4) < 0.01;
+        console.log(`Starts at highest Y, highest X: ${avgCD_startOk ? '✅ PASS' : '❌ FAIL'}`);
+        
+        // Must be CCW
+        console.log(`Is CCW: ${avgCD_signedArea > 0 ? '✅ PASS' : '❌ FAIL'} (signed area: ${avgCD_signedArea.toFixed(4)})`);
+    } else {
+        console.log('❌ FAIL: Average returned null (shapes may have cancelled!)');
+    }
+    
+    console.log('\n' + '='.repeat(60));
+    console.log('END OF TESTS');
+    console.log('='.repeat(60));
+    
+    return { normalizedCW, normalizedCCW, avgShape };
+}
+
+/**
+ * Test ZIP path parsing logic
+ * Run from console: runZipParsingTests()
+ */
+function runZipParsingTests() {
+    console.log('='.repeat(60));
+    console.log('ZIP PATH PARSING TESTS');
+    console.log('='.repeat(60));
+    
+    // Test cases for folder pattern matching
+    const testCases = [
+        {
+            path: 'Jiaxin L_11_Drawings 2/Jiaxin L_62.5Hz_100dB.png',
+            expectedParticipant: 'Jiaxin L',
+            expectedFolderNum: 11,
+            expectedFreq: 62.5
+        },
+        {
+            path: 'John_3/John_1000Hz_80dB.png',
+            expectedParticipant: 'John',
+            expectedFolderNum: 3,
+            expectedFreq: 1000
+        },
+        {
+            path: 'Mary Smith_5_Trial/Mary Smith_250Hz_90dB.png',
+            expectedParticipant: 'Mary Smith',
+            expectedFolderNum: 5,
+            expectedFreq: 250
+        },
+        {
+            path: 'OuterZip/InnerZip/Participant_7/Participant_500Hz_100dB.png',
+            expectedParticipant: 'Participant',
+            expectedFolderNum: 7,
+            expectedFreq: 500
+        },
+        {
+            path: 'Simple/2/Test_125Hz_85dB.png',
+            expectedParticipant: 'Simple',
+            expectedFolderNum: 2,
+            expectedFreq: 125
+        }
+    ];
+    
+    let passCount = 0;
+    let failCount = 0;
+    
+    for (const tc of testCases) {
+        console.log(`\n--- Testing: ${tc.path} ---`);
+        
+        const pathParts = tc.path.split('/').filter(p => p.length > 0);
+        const filename = pathParts[pathParts.length - 1];
+        
+        let folderNum = null;
+        let partPath = null;
+        
+        // Replicate the folder matching logic from processZip
+        for (let i = 0; i < pathParts.length - 1; i++) {
+            const part = pathParts[i];
+            
+            // Pattern: "Name_Number" or "Name_Number_AnythingElse"
+            const match = part.match(/^(.+?)_(\d+)(?:_.*)?$/);
+            if (match) {
+                partPath = match[1].trim();
+                folderNum = parseInt(match[2]);
+                console.log(`  Matched folder pattern: "${part}" → participant="${partPath}", folderNum=${folderNum}`);
+                break;
+            }
+            
+            // Check for purely numeric folders
+            if (/^\d+$/.test(part)) {
+                folderNum = parseInt(part);
+                if (i > 0) {
+                    partPath = pathParts[i - 1];
+                }
+                console.log(`  Found numeric folder: ${part} → folderNum=${folderNum}, participant=${partPath}`);
+                break;
+            }
+        }
+        
+        // Fallback to filename parsing
+        const participant = partPath || parseParticipant(filename);
+        const freq = parseFreq(filename);
+        
+        console.log(`  Final: participant="${participant}", folderNum=${folderNum}, freq=${freq}Hz`);
+        
+        // Check results
+        const participantOk = participant === tc.expectedParticipant;
+        const folderNumOk = folderNum === tc.expectedFolderNum;
+        const freqOk = freq === tc.expectedFreq;
+        
+        console.log(`  Participant: ${participantOk ? '✅' : '❌'} (expected: "${tc.expectedParticipant}", got: "${participant}")`);
+        console.log(`  Folder Num: ${folderNumOk ? '✅' : '❌'} (expected: ${tc.expectedFolderNum}, got: ${folderNum})`);
+        console.log(`  Frequency: ${freqOk ? '✅' : '❌'} (expected: ${tc.expectedFreq}, got: ${freq})`);
+        
+        if (participantOk && folderNumOk && freqOk) {
+            passCount++;
+        } else {
+            failCount++;
+        }
+    }
+    
+    console.log('\n' + '='.repeat(60));
+    console.log(`RESULTS: ${passCount} passed, ${failCount} failed`);
+    console.log('='.repeat(60));
+    
+    return { passCount, failCount };
+}
+
+// Make test functions available globally
+window.runZipParsingTests = runZipParsingTests;
+
+// Make test function available globally
+window.runContourTests = runContourTests;
+
+// ============================================
 // INIT
 // ============================================
 function init() {
@@ -3076,6 +3577,7 @@ function init() {
     document.getElementById('resample-slider').oninput = e => { resampleRate = +e.target.value; document.getElementById('resample-val').textContent = resampleRate; };
     document.getElementById('img-opacity-slider').oninput = e => { IMAGE_OPACITY = +e.target.value / 100; document.getElementById('img-opacity-val').textContent = e.target.value + '%'; redraw(); };
     document.getElementById('shape-opacity-slider').oninput = e => { SHAPE_OPACITY = +e.target.value / 100; document.getElementById('shape-opacity-val').textContent = e.target.value + '%'; redraw(); };
+    document.getElementById('radial-res-slider').oninput = e => { radialResolution = +e.target.value; document.getElementById('radial-res-val').textContent = radialResolution; };
     
     document.getElementById('toggle-draw').onclick = () => { drawingOn = !drawingOn; const b = document.getElementById('toggle-draw'); b.textContent = drawingOn ? '✏️ Drawing: ON' : '✏️ Drawing: OFF'; b.className = b.className.replace(drawingOn ? 'bg-red' : 'bg-green', drawingOn ? 'bg-green' : 'bg-red'); canvas.style.cursor = drawingOn ? 'crosshair' : 'default'; };
     document.getElementById('undo-btn').onclick = undo;
