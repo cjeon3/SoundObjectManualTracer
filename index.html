@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sound Object Contour Tracer | UCI Hearing & Speech Lab</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -10,8 +10,64 @@
     <style>
         * { -webkit-tap-highlight-color: transparent; }
         body { min-height: 100vh; font-family: ui-sans-serif, system-ui, sans-serif; background: #f3f4f6; }
-        #canvas-container { max-width: 100%; width: 100%; margin: 0 auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-radius: 0.75rem; overflow: hidden; background: #fff; touch-action: none; aspect-ratio: 1; }
-        #drawing-canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; will-change: transform; }
+        #canvas-container {
+            max-width: 100%;
+            width: 100%;
+            /* Constrain to the smaller of viewport width or height so the full
+               square grid is always visible regardless of orientation. */
+            max-height: min(calc(100svh - 44px), 100vw);
+            max-width: min(calc(100svh - 44px), 100vw);
+            margin: 0 auto;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            border-radius: 0.75rem;
+            overflow: hidden;
+            background: #fff;
+            touch-action: none;
+            aspect-ratio: 1;
+            position: relative;
+        }
+        #drawing-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+            cursor: crosshair;
+            transform-origin: 0 0;
+        }
+        /* Zoom indicator badge */
+        #zoom-indicator {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(0,0,0,0.6);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 6px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.25s;
+            z-index: 10;
+        }
+        #zoom-indicator.visible { opacity: 1; }
+        /* Reset zoom button */
+        #reset-zoom {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            background: rgba(0,0,0,0.55);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            z-index: 10;
+            display: none;
+        }
+        #reset-zoom:hover { background: rgba(0,0,0,0.75); }
         input[type="range"] { -webkit-appearance: none; background: transparent; cursor: pointer; width: 100%; height: 40px; }
         input[type="range"]::-webkit-slider-runnable-track { background: linear-gradient(to right, #3b82f6, #8b5cf6); height: 8px; border-radius: 4px; }
         input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 24px; width: 24px; background: #000; border: 3px solid #fff; border-radius: 50%; cursor: grab; margin-top: -8px; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
@@ -31,10 +87,16 @@
         .data-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
         .data-table th { background: #f1f5f9; padding: 0.5rem; text-align: left; font-weight: 600; }
         .data-table td { padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-family: monospace; }
+        /* Responsive: on small screens, reduce body padding and header size */
+        @media (max-width: 768px) {
+            body { padding: 0.5rem !important; }
+            header h1 { font-size: 1.5rem; }
+            header p { font-size: 0.85rem; }
+        }
     </style>
 </head>
 <body class="p-4 sm:p-8">
-    <div class="max-w-6xl mx-auto">
+    <div class="max-w-6xl mx-auto px-0 sm:px-2">
         <header class="text-center mb-6">
             <h1 class="text-4xl font-extrabold text-blue-800 mb-2">Sound Object Contour Tracer</h1>
             <p class="text-xl font-semibold text-gray-600">UCI Hearing & Speech Lab</p>
@@ -71,8 +133,39 @@
             <div id="frequency-tabs" class="flex flex-wrap gap-2"></div>
         </div>
         
+        <!-- Drawing Toolbar: color, brush, undo/redo/clear — directly above the canvas -->
+        <div id="drawing-toolbar" class="bg-white p-3 rounded-xl shadow-lg mb-2 hidden">
+            <div class="flex flex-wrap items-center gap-3">
+                <!-- Color buttons -->
+                <div class="flex items-center gap-2">
+                    <span class="font-bold text-gray-700 text-sm">Color</span>
+                    <button id="color-red" class="color-button w-10 h-10 rounded-full shadow-md border-4 border-gray-200 selected" style="background:#ef4444;"></button>
+                    <button id="color-blue" class="color-button w-10 h-10 rounded-full shadow-md border-4 border-gray-200" style="background:#3b82f6;"></button>
+                </div>
+                <!-- Brush size -->
+                <div class="flex items-center gap-2 flex-1 min-w-[140px] max-w-[260px]">
+                    <span class="font-bold text-gray-700 text-sm whitespace-nowrap">Brush: <span id="brush-val" class="text-blue-600">5</span></span>
+                    <input id="brush-slider" type="range" min="1" max="10" value="5" class="flex-1">
+                </div>
+                <!-- Divider -->
+                <div class="hidden sm:block w-px h-8 bg-gray-300"></div>
+                <!-- Action buttons -->
+                <div class="flex flex-wrap gap-1.5">
+                    <button id="toggle-draw" class="px-3 py-1.5 rounded-lg font-bold text-xs bg-green-500 text-white shadow">✏️ ON</button>
+                    <button id="undo-btn" disabled class="px-3 py-1.5 rounded-lg font-bold text-xs bg-yellow-400 text-gray-900 shadow disabled:opacity-50">↩️ Undo</button>
+                    <button id="redo-btn" disabled class="px-3 py-1.5 rounded-lg font-bold text-xs bg-yellow-400 text-gray-900 shadow disabled:opacity-50">↪️ Redo</button>
+                    <button id="clear-btn" class="px-3 py-1.5 rounded-lg font-bold text-xs bg-red-500 text-white shadow">🗑️ Clear</button>
+                    <button id="grid-btn" class="px-3 py-1.5 rounded-lg font-bold text-xs bg-gray-500 text-white shadow">📐 Grid</button>
+                </div>
+            </div>
+        </div>
+        
         <!-- Canvas -->
-        <div id="canvas-container" class="bg-white rounded-xl shadow-2xl mb-4"><canvas id="drawing-canvas"></canvas></div>
+        <div id="canvas-container" class="bg-white rounded-xl shadow-2xl mb-4">
+            <canvas id="drawing-canvas"></canvas>
+            <span id="zoom-indicator">100%</span>
+            <button id="reset-zoom">Reset Zoom</button>
+        </div>
         
         <!-- Tracing Statistics Section -->
         <div id="stats-section" class="bg-gradient-to-r from-gray-50 to-slate-50 p-4 rounded-xl shadow-lg mb-6 border border-gray-200 hidden">
@@ -104,23 +197,9 @@
             <p class="text-xs text-gray-500 mt-3">Overlap measures how well traced contours match the original drawing pixels (higher = better match).</p>
         </div>
         
-        <!-- Controls -->
+        <!-- Advanced Controls -->
         <div class="bg-white p-4 rounded-xl shadow-lg mb-6 space-y-4">
-            <div class="flex flex-wrap items-start gap-6">
-                <div>
-                    <p class="font-bold text-gray-800 mb-2">Color</p>
-                    <div class="flex gap-3">
-                        <button id="color-red" class="color-button w-12 h-12 rounded-full shadow-md border-4 border-gray-200 selected" style="background:#ef4444;"></button>
-                        <button id="color-blue" class="color-button w-12 h-12 rounded-full shadow-md border-4 border-gray-200" style="background:#3b82f6;"></button>
-                    </div>
-                </div>
-                <div class="flex-1 min-w-[250px]">
-                    <label class="font-bold text-gray-800">Brush Size: <span id="brush-val" class="text-xl text-blue-600">5</span></label>
-                    <input id="brush-slider" type="range" min="1" max="10" value="5">
-                    <div class="slider-labels"><span>1px</span><span>5px</span><span>10px</span></div>
-                </div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div class="bg-blue-50 p-4 rounded-xl">
                     <label class="font-bold text-gray-800">Resample Rate: <span id="resample-val" class="text-xl text-blue-600">1000</span></label>
                     <input id="resample-slider" type="range" min="500" max="10000" step="250" value="1000">
@@ -141,13 +220,6 @@
                     <input id="radial-res-slider" type="range" min="36" max="3600" step="36" value="720">
                     <div class="slider-labels"><span>36</span><span>720</span><span>3600</span></div>
                 </div>
-            </div>
-            <div class="flex flex-wrap gap-2 pt-4 border-t">
-                <button id="toggle-draw" class="px-5 py-2 rounded-xl font-bold text-sm bg-green-500 text-white shadow">✏️ Drawing: ON</button>
-                <button id="undo-btn" disabled class="px-5 py-2 rounded-xl font-bold text-sm bg-yellow-400 text-gray-900 shadow disabled:opacity-50">↩️ Undo</button>
-                <button id="redo-btn" disabled class="px-5 py-2 rounded-xl font-bold text-sm bg-yellow-400 text-gray-900 shadow disabled:opacity-50">↪️ Redo</button>
-                <button id="clear-btn" class="px-5 py-2 rounded-xl font-bold text-sm bg-red-500 text-white shadow">🗑️ Clear</button>
-                <button id="grid-btn" class="px-5 py-2 rounded-xl font-bold text-sm bg-gray-500 text-white shadow">📐 Grid</button>
             </div>
             <div id="status" class="text-sm text-gray-500 pt-2 border-t">Ready. Upload images to begin.</div>
             <div class="pt-2 border-t text-sm">
@@ -337,6 +409,10 @@ let allData = {}, images = {}, trialMapping = {};
 let curParticipant = null, curTrial = null, curFreq = null;
 let undoStack = [], redoStack = [];
 
+// Snapshot of Final data as it existed on the server at load time.
+// Used to diff against allData when saving as Final so we only send new shapes.
+let _finalSnapshot = null;
+
 // ============================================
 // COORDINATE TRANSFORMS - EXACT MATCH
 // ============================================
@@ -371,6 +447,78 @@ function ensureData(p, t, f) {
 
 function curData() {
     return curParticipant && curTrial && curFreq ? ensureData(curParticipant, curTrial, fKey(curFreq)) : null;
+}
+
+/**
+ * Epsilon-tolerant comparison of two shape arrays.
+ * Returns true if both have the same length and every point matches within eps.
+ */
+function shapesMatch(a, b, eps = 1e-4) {
+    if (!a || !b) return false;
+    if (a.length !== b.length) return false;
+    if (a.length === 0) return true;
+    for (let i = 0; i < a.length; i++) {
+        if (Math.abs(a[i].x - b[i].x) > eps || Math.abs(a[i].y - b[i].y) > eps) return false;
+    }
+    return true;
+}
+
+/**
+ * Given current allData and _finalSnapshot, return a new object containing
+ * only shapes that are NOT already in the snapshot. Averages are included
+ * only if they differ from the snapshot.
+ * If snapshot is null (no prior load from Final), returns allData as-is.
+ */
+function extractNewShapes(current, snapshot) {
+    if (!snapshot) return current;
+    const diff = {};
+    let hasAnything = false;
+
+    for (const p of Object.keys(current)) {
+        for (const t of Object.keys(current[p])) {
+            for (const f of Object.keys(current[p][t])) {
+                const cur = current[p][t][f];
+                const snap = snapshot[p] && snapshot[p][t] && snapshot[p][t][f]
+                    ? snapshot[p][t][f]
+                    : { red: [], blue: [], redAvg: null, blueAvg: null };
+
+                const newRed = [];
+                if (cur.red) {
+                    cur.red.forEach(shape => {
+                        if (!shape || shape.length === 0) return;
+                        const inSnap = snap.red && snap.red.some(s => shapesMatch(s, shape));
+                        if (!inSnap) newRed.push(shape);
+                    });
+                }
+
+                const newBlue = [];
+                if (cur.blue) {
+                    cur.blue.forEach(shape => {
+                        if (!shape || shape.length === 0) return;
+                        const inSnap = snap.blue && snap.blue.some(s => shapesMatch(s, shape));
+                        if (!inSnap) newBlue.push(shape);
+                    });
+                }
+
+                // Include averages only if they changed
+                const redAvgChanged = cur.redAvg && !shapesMatch(cur.redAvg, snap.redAvg);
+                const blueAvgChanged = cur.blueAvg && !shapesMatch(cur.blueAvg, snap.blueAvg);
+
+                if (newRed.length > 0 || newBlue.length > 0 || redAvgChanged || blueAvgChanged) {
+                    if (!diff[p]) diff[p] = {};
+                    if (!diff[p][t]) diff[p][t] = {};
+                    diff[p][t][f] = {
+                        red: newRed,
+                        blue: newBlue,
+                        redAvg: redAvgChanged ? cur.redAvg : null,
+                        blueAvg: blueAvgChanged ? cur.blueAvg : null
+                    };
+                    hasAnything = true;
+                }
+            }
+        }
+    }
+    return hasAnything ? diff : null;
 }
 
 // ============================================
@@ -832,12 +980,88 @@ function calculateImageOverlap(img, data) {
 const SMOOTH_WINDOW = 3;
 let smoothBuffer = [];
 
+// ============================================
+// PINCH-TO-ZOOM STATE
+// ============================================
+let zoomScale = 1;
+let zoomTranslateX = 0;
+let zoomTranslateY = 0;
+const ZOOM_MIN = 0.5;  // Allow zooming out to 50% for small screens
+const ZOOM_MAX = 5;
+
+// Track all active pointers for gesture detection
+let activePointers = new Map(); // pointerId -> {clientX, clientY}
+let isPinching = false;
+let pinchStartDist = 0;
+let pinchStartScale = 1;
+let pinchStartMidX = 0;
+let pinchStartMidY = 0;
+let pinchStartTransX = 0;
+let pinchStartTransY = 0;
+let zoomIndicatorTimeout = null;
+
+function applyZoomTransform() {
+    const container = document.getElementById('canvas-container');
+    const rect = container.getBoundingClientRect();
+
+    if (zoomScale >= 1) {
+        // Zoomed in: clamp so edges stay visible
+        const maxTx = (zoomScale - 1) * rect.width;
+        const maxTy = (zoomScale - 1) * rect.height;
+        zoomTranslateX = Math.max(-maxTx, Math.min(0, zoomTranslateX));
+        zoomTranslateY = Math.max(-maxTy, Math.min(0, zoomTranslateY));
+    } else {
+        // Zoomed out: center the smaller canvas within the container
+        const offsetX = (1 - zoomScale) * rect.width / 2;
+        const offsetY = (1 - zoomScale) * rect.height / 2;
+        zoomTranslateX = offsetX;
+        zoomTranslateY = offsetY;
+    }
+
+    canvas.style.transform = `translate(${zoomTranslateX}px, ${zoomTranslateY}px) scale(${zoomScale})`;
+
+    // Show/hide zoom indicator
+    const indicator = document.getElementById('zoom-indicator');
+    const resetBtn = document.getElementById('reset-zoom');
+    indicator.textContent = Math.round(zoomScale * 100) + '%';
+    indicator.classList.add('visible');
+    clearTimeout(zoomIndicatorTimeout);
+    zoomIndicatorTimeout = setTimeout(() => indicator.classList.remove('visible'), 1200);
+
+    resetBtn.style.display = Math.abs(zoomScale - 1) > 0.01 ? 'block' : 'none';
+}
+
+function resetZoom() {
+    zoomScale = 1;
+    zoomTranslateX = 0;
+    zoomTranslateY = 0;
+    canvas.style.transform = '';
+    document.getElementById('reset-zoom').style.display = 'none';
+    const indicator = document.getElementById('zoom-indicator');
+    indicator.textContent = '100%';
+    indicator.classList.add('visible');
+    clearTimeout(zoomIndicatorTimeout);
+    zoomIndicatorTimeout = setTimeout(() => indicator.classList.remove('visible'), 1200);
+}
+
+function pointerDist(a, b) {
+    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+}
+
 function getPoint(e) {
     const r = canvas.getBoundingClientRect();
     let cx, cy;
     if (e.touches?.length) { cx = e.touches[0].clientX; cy = e.touches[0].clientY; }
     else if (e.changedTouches?.length) { cx = e.changedTouches[0].clientX; cy = e.changedTouches[0].clientY; }
     else { cx = e.clientX; cy = e.clientY; }
+
+    // Account for zoom transform: the canvas CSS dimensions stay the same,
+    // but the visual content is scaled and translated. We need to map the
+    // screen coordinate to the unzoomed canvas pixel coordinate.
+    // r already reflects the *untransformed* layout box (CSS width/height),
+    // but the actual visual position is shifted by the transform.
+    // The pointer coords are in screen space. The canvas element's bounding
+    // rect accounts for the transform, so we can use it directly.
     return { x: (cx - r.left) * (CANVAS_SIZE / r.width), y: (cy - r.top) * (CANVAS_SIZE / r.height) };
 }
 
@@ -863,6 +1087,121 @@ function smoothPoint(rawPt) {
 
 // Track active pointer to ignore secondary touches on tablets
 let activePointerId = null;
+
+/**
+ * Unified pointer-down handler.
+ *
+ * Pen (stylus) input ALWAYS goes to drawing and never participates in pinch
+ * detection. This prevents a common tablet issue where palm contact or an
+ * intentional zoom gesture interrupts a pen stroke.
+ *
+ * Touch input is tracked for pinch-zoom. Two simultaneous touch pointers
+ * trigger pinch mode and suppress touch-based drawing. Mouse input follows
+ * the same path as touch for consistency (scroll-wheel zoom is handled
+ * separately).
+ */
+function handlePointerDown(e) {
+    // Pen: always draw, never pinch
+    if (e.pointerType === 'pen') {
+        // Clear stale pinch state if no touch pointers remain
+        if (isPinching && activePointers.size < 2) {
+            isPinching = false;
+        }
+        if (!isDrawing) {
+            startDraw(e);
+        }
+        return;
+    }
+
+    // Touch / mouse: track for pinch detection
+    activePointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+
+    if (activePointers.size === 2) {
+        // Entering pinch mode: cancel any in-progress TOUCH stroke.
+        // Pen strokes are never cancelled by finger contact.
+        if (isDrawing && activePointerId !== null && activePointers.has(activePointerId)) {
+            // The drawing pointer is a touch pointer tracked in activePointers,
+            // so it is safe to cancel.
+            isDrawing = false;
+            lastDrawnPt = null;
+            activePointerId = null;
+            smoothBuffer = [];
+            curPath = [];
+        }
+        isPinching = true;
+        const pts = Array.from(activePointers.values());
+        pinchStartDist = pointerDist(pts[0], pts[1]);
+        pinchStartScale = zoomScale;
+        pinchStartMidX = (pts[0].clientX + pts[1].clientX) / 2;
+        pinchStartMidY = (pts[0].clientY + pts[1].clientY) / 2;
+        pinchStartTransX = zoomTranslateX;
+        pinchStartTransY = zoomTranslateY;
+        e.preventDefault();
+        return;
+    }
+
+    if (activePointers.size === 1 && !isPinching) {
+        startDraw(e);
+    }
+}
+
+function handlePointerMove(e) {
+    // Pen: route directly to drawing
+    if (e.pointerType === 'pen') {
+        if (isDrawing && e.pointerId === activePointerId) {
+            doDraw(e);
+        }
+        return;
+    }
+
+    if (!activePointers.has(e.pointerId)) return;
+    activePointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+
+    if (isPinching && activePointers.size >= 2) {
+        e.preventDefault();
+        const pts = Array.from(activePointers.values());
+        const dist = pointerDist(pts[0], pts[1]);
+        const midX = (pts[0].clientX + pts[1].clientX) / 2;
+        const midY = (pts[0].clientY + pts[1].clientY) / 2;
+
+        // Scale
+        const rawScale = pinchStartScale * (dist / pinchStartDist);
+        zoomScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, rawScale));
+
+        // Pan: follow the midpoint shift
+        zoomTranslateX = pinchStartTransX + (midX - pinchStartMidX);
+        zoomTranslateY = pinchStartTransY + (midY - pinchStartMidY);
+
+        applyZoomTransform();
+        return;
+    }
+
+    if (!isPinching) {
+        doDraw(e);
+    }
+}
+
+function handlePointerUp(e) {
+    // Pen: route directly to end-draw
+    if (e.pointerType === 'pen') {
+        if (isDrawing && e.pointerId === activePointerId) {
+            endDraw(e);
+        }
+        return;
+    }
+
+    activePointers.delete(e.pointerId);
+
+    if (isPinching) {
+        if (activePointers.size < 2) {
+            isPinching = false;
+        }
+        // Don't pass through to endDraw; the stroke was already cancelled
+        return;
+    }
+
+    endDraw(e);
+}
 
 function startDraw(e) {
     if (!drawingOn || !curParticipant) return;
@@ -1314,6 +1653,7 @@ function buildTabs(participants) {
     pSec.classList.remove('hidden');
     tSec.classList.remove('hidden');
     fSec.classList.remove('hidden');
+    document.getElementById('drawing-toolbar').classList.remove('hidden');
     
     const sortedP = Array.from(participants.keys()).sort();
     let first = true;
@@ -2221,9 +2561,12 @@ function drawCompositeGrid(cx, size) {
 }
 
 /**
- * Export frequency averages as PNG images
+ * Export frequency averages as PNG images.
  * Creates one image per frequency with:
- * - Individual traced shapes at configurable opacity (background)
+ * - Original participant PNG drawings overlaid at configurable opacity (background)
+ *   NOTE: Only the original uploaded PNG images appear here, NOT the manually
+ *   traced contour lines. If images were not uploaded (e.g. cloud-only workflow),
+ *   the background will be blank and a warning is logged.
  * - Average shapes at full opacity (foreground)
  * - Grid on top
  */
@@ -2241,8 +2584,6 @@ function exportFrequencyPNGs() {
     }
     
     statusEl.textContent = 'Creating PNG images...';
-    
-    const promises = [];
     
     for (const freq of FREQUENCIES) {
         const hzKey = freq.hz;
@@ -2268,49 +2609,36 @@ function exportFrequencyPNGs() {
         cx.stroke();
         cx.restore();
         
-        // Layer 2: Individual traced shapes at SHAPE_OPACITY
-        if (data.redShapes) {
-            data.redShapes.forEach(shape => {
-                if (shape && shape.length >= 2) {
-                    cx.save();
-                    cx.globalAlpha = SHAPE_OPACITY;
-                    cx.strokeStyle = COLORS.red;
-                    cx.lineWidth = brushSize;
-                    cx.lineCap = 'round';
-                    cx.lineJoin = 'round';
-                    cx.beginPath();
-                    const st = unitToCanvas(shape[0].x, shape[0].y);
-                    cx.moveTo(st.x, st.y);
-                    for (let i = 1; i < shape.length; i++) {
-                        const pt = unitToCanvas(shape[i].x, shape[i].y);
-                        cx.lineTo(pt.x, pt.y);
+        // Layer 2: Original participant PNG images at low opacity.
+        // Collect all image keys matching this frequency across all participants/trials.
+        const fk = fKey(freq);
+        let imgCount = 0;
+        for (const p of Object.keys(allData)) {
+            for (const t of Object.keys(allData[p])) {
+                for (const dataFk of Object.keys(allData[p][t])) {
+                    const dataHz = parseFloat(dataFk);
+                    if (Math.abs(dataHz - freq.hz) < 0.1) {
+                        const ik = `${p}|${t}|${dataFk}`;
+                        const img = images[ik];
+                        if (img) {
+                            cx.save();
+                            cx.globalAlpha = IMAGE_OPACITY;
+                            if (img.naturalWidth === CANVAS_SIZE && img.naturalHeight === CANVAS_SIZE) {
+                                cx.drawImage(img, 0, 0);
+                            } else {
+                                const sc = Math.min(CANVAS_SIZE / img.naturalWidth, CANVAS_SIZE / img.naturalHeight);
+                                const sw = img.naturalWidth * sc;
+                                const sh = img.naturalHeight * sc;
+                                const ox = (CANVAS_SIZE - sw) / 2;
+                                const oy = (CANVAS_SIZE - sh) / 2;
+                                cx.drawImage(img, ox, oy, sw, sh);
+                            }
+                            cx.restore();
+                            imgCount++;
+                        }
                     }
-                    cx.stroke();
-                    cx.restore();
                 }
-            });
-        }
-        
-        if (data.blueShapes) {
-            data.blueShapes.forEach(shape => {
-                if (shape && shape.length >= 2) {
-                    cx.save();
-                    cx.globalAlpha = SHAPE_OPACITY;
-                    cx.strokeStyle = COLORS.blue;
-                    cx.lineWidth = brushSize;
-                    cx.lineCap = 'round';
-                    cx.lineJoin = 'round';
-                    cx.beginPath();
-                    const st = unitToCanvas(shape[0].x, shape[0].y);
-                    cx.moveTo(st.x, st.y);
-                    for (let i = 1; i < shape.length; i++) {
-                        const pt = unitToCanvas(shape[i].x, shape[i].y);
-                        cx.lineTo(pt.x, pt.y);
-                    }
-                    cx.stroke();
-                    cx.restore();
-                }
-            });
+            }
         }
         
         // Layer 3: Average shapes at full opacity with centroid markers
@@ -2410,6 +2738,16 @@ function exportFrequencyPNGs() {
         const blueAreaStr = data.blueArea ? data.blueArea.toFixed(2) : '-';
         cx.fillText(`Blue: N=${blueCount}, Centroid=${blueCentroidStr}, Area=${blueAreaStr}`, 20, 75);
         
+        // Source image count (warn if none available)
+        cx.fillStyle = '#6b7280';
+        if (imgCount === 0) {
+            cx.fillStyle = '#b91c1c';
+            cx.fillText(`No participant images loaded (upload ZIP to include backgrounds)`, 20, 95);
+            console.warn(`Export ${hzKey} Hz: no participant images available for background`);
+        } else {
+            cx.fillText(`Participant images: ${imgCount}`, 20, 95);
+        }
+        
         // Shift calculation (if both exist)
         if (data.redCentroid && data.blueCentroid) {
             const shift = Math.sqrt(
@@ -2417,7 +2755,7 @@ function exportFrequencyPNGs() {
                 Math.pow(data.blueCentroid.y - data.redCentroid.y, 2)
             );
             cx.fillStyle = '#6b7280';
-            cx.fillText(`Centroid Shift: ${shift.toFixed(3)} units`, 20, 95);
+            cx.fillText(`Centroid Shift: ${shift.toFixed(3)} units`, 20, 115);
         }
         
         // Save as PNG
@@ -2426,8 +2764,15 @@ function exportFrequencyPNGs() {
         });
     }
     
-    statusEl.textContent = 'PNG images exported!';
-    status('Frequency PNG images exported');
+    // Warn if no participant images are loaded at all
+    const totalImages = Object.keys(images).length;
+    if (totalImages === 0) {
+        statusEl.textContent = 'PNGs exported (no participant images loaded for backgrounds)';
+        status('PNGs exported without background images. Upload ZIP to include original participant drawings.');
+    } else {
+        statusEl.textContent = 'PNG images exported!';
+        status('Frequency PNG images exported');
+    }
 }
 
 function updateGallery() {
@@ -2679,14 +3024,34 @@ async function saveToCloud() {
     localStorage.setItem('cloudUrl', url);
     localStorage.setItem('tracerName', tracerName);
     
+    // For Final saves: diff against snapshot so we only send new shapes.
+    // The server will merge these into its stored Final data.
+    const isFinal = (tracerName === 'Final');
+    let dataToSend = allData;
+    
+    if (isFinal && _finalSnapshot) {
+        const diff = extractNewShapes(allData, _finalSnapshot);
+        if (!diff) {
+            updateCloudProgress(100);
+            showCloudSuccess(
+                'Nothing New to Save',
+                'All shapes already exist in the cloud Final data.',
+                'No new traced shapes were detected since your last load.'
+            );
+            setCloudStatus('✅ Final is up to date (no new data)');
+            return;
+        }
+        dataToSend = diff;
+        console.log('Final save: sending only new shapes (diffed against snapshot)');
+    }
+    
     // Count data for display
-    const participants = Object.keys(allData);
     let totalShapes = 0;
     let dataDebug = [];
-    for (const p of participants) {
-        for (const t of Object.keys(allData[p])) {
-            for (const f of Object.keys(allData[p][t])) {
-                const d = allData[p][t][f];
+    for (const p of Object.keys(dataToSend)) {
+        for (const t of Object.keys(dataToSend[p])) {
+            for (const f of Object.keys(dataToSend[p][t])) {
+                const d = dataToSend[p][t][f];
                 const redCount = d.red ? d.red.length : 0;
                 const blueCount = d.blue ? d.blue.length : 0;
                 totalShapes += redCount + blueCount;
@@ -2694,11 +3059,13 @@ async function saveToCloud() {
             }
         }
     }
+    const participantCount = Object.keys(dataToSend).length;
     
-    updateCloudProgress(10, `${participants.length} participants, ${totalShapes} shapes`);
+    updateCloudProgress(10, `${participantCount} participants, ${totalShapes} shapes`);
     
     console.log('=== SAVE TO CLOUD DEBUG ===');
-    console.log('Participants:', participants);
+    console.log('Tracer:', tracerName, isFinal ? '(Final - diff mode)' : '');
+    console.log('Participants:', Object.keys(dataToSend));
     console.log('Total shapes:', totalShapes);
     console.log('Data breakdown:', dataDebug);
     
@@ -2706,7 +3073,7 @@ async function saveToCloud() {
         action: 'saveProgress',
         tracerName: tracerName,
         savedAt: new Date().toISOString(),
-        allData: allData,
+        allData: dataToSend,
         settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize, radialResolution }
     };
     
@@ -2777,6 +3144,13 @@ async function saveToCloud() {
         }
         
         status('Saved to cloud');
+        
+        // After a successful Final save, update the snapshot to current allData
+        // so the next save only sends shapes added after this point.
+        if (isFinal) {
+            _finalSnapshot = JSON.parse(JSON.stringify(allData));
+            console.log('Updated _finalSnapshot after successful Final save');
+        }
     } catch (e) {
         console.error('Save error:', e);
         showCloudError(
@@ -2806,8 +3180,12 @@ async function loadFromCloud(tracerNameOverride = null, mergeMode = false, fromC
         setCloudStatus('☁️ Loading from cloud...');
         status('Loading from cloud...');
         
-        // Use loadAllFromCoordinates to get complete history, or loadProgress for latest only
-        const action = fromCoordinates ? 'loadAllFromCoordinates' : 'loadProgress';
+        // For Final: always use loadProgress (TracerProgress holds the complete
+        // merged dataset). For other tracers: use loadAllFromCoordinates when
+        // fromCoordinates is true to get full history.
+        const isFinal = (tracerName === 'Final');
+        const action = isFinal ? 'loadProgress' :
+                       (fromCoordinates ? 'loadAllFromCoordinates' : 'loadProgress');
         const response = await fetch(`${url}?action=${action}&tracerName=${encodeURIComponent(tracerName)}`);
         const data = await response.json();
         
@@ -2826,6 +3204,13 @@ async function loadFromCloud(tracerNameOverride = null, mergeMode = false, fromC
                 allData = data.allData;
             }
             
+            // Snapshot Final data so subsequent saves only send new shapes
+            if (isFinal) {
+                _finalSnapshot = JSON.parse(JSON.stringify(allData));
+                console.log('Captured _finalSnapshot after loading Final (' +
+                    Object.keys(_finalSnapshot).length + ' participants)');
+            }
+            
             if (data.settings && !mergeMode) {
                 applySettings(data.settings);
             }
@@ -2833,15 +3218,15 @@ async function loadFromCloud(tracerNameOverride = null, mergeMode = false, fromC
             // Rebuild tabs
             rebuildTabsFromData();
             
-            const action = mergeMode ? 'Added' : 'Loaded';
-            const source = fromCoordinates ? ' (all history)' : '';
+            const actionLabel = mergeMode ? 'Added' : 'Loaded';
+            const source = (!isFinal && fromCoordinates) ? ' (all history)' : '';
             if (data.savedAt) {
                 const savedTime = new Date(data.savedAt).toLocaleString();
-                setCloudStatus(`✅ ${action} "${tracerName}"${source} (saved ${savedTime})`);
+                setCloudStatus(`✅ ${actionLabel} "${tracerName}"${source} (saved ${savedTime})`);
             } else if (data.pointCount) {
-                setCloudStatus(`✅ ${action} "${tracerName}"${source}: ${data.pointCount} points`);
+                setCloudStatus(`✅ ${actionLabel} "${tracerName}"${source}: ${data.pointCount} points`);
             } else {
-                setCloudStatus(`✅ ${action} "${tracerName}"${source}`);
+                setCloudStatus(`✅ ${actionLabel} "${tracerName}"${source}`);
             }
             status(mergeMode ? 'Data added from cloud' : 'Loaded from cloud');
         } else {
@@ -2854,7 +3239,8 @@ async function loadFromCloud(tracerNameOverride = null, mergeMode = false, fromC
 }
 
 /**
- * Merge source data into target data without replacing existing shapes
+ * Merge source data into target data without replacing existing shapes.
+ * Uses epsilon-tolerant shapesMatch for duplicate detection.
  */
 function mergeDataInto(target, source) {
     for (const participant of Object.keys(source)) {
@@ -2873,14 +3259,11 @@ function mergeDataInto(target, source) {
                 const srcData = source[participant][trial][freq];
                 const tgtData = target[participant][trial][freq];
                 
-                // Merge red shapes (avoid exact duplicates)
+                // Merge red shapes (epsilon-tolerant duplicate check)
                 if (srcData.red) {
                     srcData.red.forEach(srcShape => {
                         if (srcShape && srcShape.length > 0) {
-                            const isDuplicate = tgtData.red.some(tgtShape => 
-                                tgtShape && tgtShape.length === srcShape.length &&
-                                tgtShape.every((pt, i) => pt.x === srcShape[i].x && pt.y === srcShape[i].y)
-                            );
+                            const isDuplicate = tgtData.red.some(tgtShape => shapesMatch(tgtShape, srcShape));
                             if (!isDuplicate) {
                                 tgtData.red.push(srcShape);
                             }
@@ -2888,14 +3271,11 @@ function mergeDataInto(target, source) {
                     });
                 }
                 
-                // Merge blue shapes (avoid exact duplicates)
+                // Merge blue shapes (epsilon-tolerant duplicate check)
                 if (srcData.blue) {
                     srcData.blue.forEach(srcShape => {
                         if (srcShape && srcShape.length > 0) {
-                            const isDuplicate = tgtData.blue.some(tgtShape => 
-                                tgtShape && tgtShape.length === srcShape.length &&
-                                tgtShape.every((pt, i) => pt.x === srcShape[i].x && pt.y === srcShape[i].y)
-                            );
+                            const isDuplicate = tgtData.blue.some(tgtShape => shapesMatch(tgtShape, srcShape));
                             if (!isDuplicate) {
                                 tgtData.blue.push(srcShape);
                             }
@@ -3493,12 +3873,34 @@ function init() {
     ctx = canvas.getContext('2d');
     canvas.width = canvas.height = CANVAS_SIZE;
     
-    // Pointer Events API: unified mouse/touch/stylus with coalesced event support
-    canvas.addEventListener('pointerdown', startDraw);
-    canvas.addEventListener('pointermove', doDraw);
-    canvas.addEventListener('pointerup', endDraw);
-    canvas.addEventListener('pointerleave', endDraw);
-    canvas.addEventListener('pointercancel', endDraw);
+    // Pointer Events: route through unified handlers that detect
+    // single-pointer drawing vs two-finger pinch-zoom gestures.
+    canvas.addEventListener('pointerdown', handlePointerDown);
+    canvas.addEventListener('pointermove', handlePointerMove);
+    canvas.addEventListener('pointerup', handlePointerUp);
+    canvas.addEventListener('pointerleave', handlePointerUp);
+    canvas.addEventListener('pointercancel', handlePointerUp);
+    
+    // Mouse wheel zoom on desktop
+    document.getElementById('canvas-container').addEventListener('wheel', e => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -0.15 : 0.15;
+        const newScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoomScale + delta));
+        if (newScale === zoomScale) return;
+
+        // Zoom toward cursor position
+        const rect = canvas.getBoundingClientRect();
+        const cx = e.clientX - rect.left;
+        const cy = e.clientY - rect.top;
+        const ds = newScale / zoomScale;
+        zoomTranslateX = cx - ds * (cx - zoomTranslateX);
+        zoomTranslateY = cy - ds * (cy - zoomTranslateY);
+        zoomScale = newScale;
+        applyZoomTransform();
+    }, { passive: false });
+    
+    // Reset zoom button
+    document.getElementById('reset-zoom').onclick = resetZoom;
     
     document.getElementById('color-red').onclick = () => { selColor = 'red'; document.getElementById('color-red').classList.add('selected'); document.getElementById('color-blue').classList.remove('selected'); };
     document.getElementById('color-blue').onclick = () => { selColor = 'blue'; document.getElementById('color-blue').classList.add('selected'); document.getElementById('color-red').classList.remove('selected'); };
@@ -3509,7 +3911,7 @@ function init() {
     document.getElementById('shape-opacity-slider').oninput = e => { SHAPE_OPACITY = +e.target.value / 100; document.getElementById('shape-opacity-val').textContent = e.target.value + '%'; redraw(); };
     document.getElementById('radial-res-slider').oninput = e => { radialResolution = +e.target.value; document.getElementById('radial-res-val').textContent = radialResolution; };
     
-    document.getElementById('toggle-draw').onclick = () => { drawingOn = !drawingOn; const b = document.getElementById('toggle-draw'); b.textContent = drawingOn ? '✏️ Drawing: ON' : '✏️ Drawing: OFF'; b.className = b.className.replace(drawingOn ? 'bg-red' : 'bg-green', drawingOn ? 'bg-green' : 'bg-red'); canvas.style.cursor = drawingOn ? 'crosshair' : 'default'; };
+    document.getElementById('toggle-draw').onclick = () => { drawingOn = !drawingOn; const b = document.getElementById('toggle-draw'); b.textContent = drawingOn ? '✏️ ON' : '✏️ OFF'; b.className = b.className.replace(drawingOn ? 'bg-red' : 'bg-green', drawingOn ? 'bg-green' : 'bg-red'); canvas.style.cursor = drawingOn ? 'crosshair' : 'default'; };
     document.getElementById('undo-btn').onclick = undo;
     document.getElementById('redo-btn').onclick = redo;
     document.getElementById('clear-btn').onclick = () => { if (confirm('Clear all?')) { const d = curData(); if (d) { undoStack.push({ key: dataKey(), data: JSON.parse(JSON.stringify(d)) }); d.red = []; d.blue = []; d.redAvg = null; d.blueAvg = null; } redraw(); updateTable(); updateGallery(); document.getElementById('undo-btn').disabled = false; } };
