@@ -239,6 +239,10 @@ Radial averaging was chosen after evaluating and discarding two other approaches
 
 The primary limitation of radial averaging is its assumption that the shape is star-convex with respect to its centroid: every ray from the centroid must intersect the boundary. For highly concave or multi-lobed shapes, some rays may miss the boundary entirely (yielding distance 0 at that angle). In practice, the hand-drawn shapes in this study are sufficiently convex that this limitation does not arise.
 
+NOTE: The radial averaging function (simpleAverageShapes) does not use the traced points directly as its output. It casts rays from each shape's centroid at radialResolution uniformly spaced angles (default 720), finds the intersection distances, averages those distances, and reconstructs the result as 720 new Cartesian points. The original traced point count and spacing are irrelevant to the output.
+
+So if a contour was traced with 1000 resampled points, the averaging pipeline produces a 720-point (or whatever the slider is set to) radial reconstruction. The manual trace is only used as the boundary that the rays intersect against.
+
 ---
 
 ## 8. Centroid Calculation
