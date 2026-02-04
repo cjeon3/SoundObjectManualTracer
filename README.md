@@ -233,6 +233,22 @@ The intersection is valid when t >= 0 (the intersection is in the ray's forward 
 
 For each angle, the farthest valid intersection (largest t) is used. Taking the farthest rather than the nearest ensures that the radial sample captures the outer boundary of the shape, not an inner fold or crossing.
 
+### Implicit Shape Closure via Modular Indexing
+
+Traced contours are stored as open paths: the last point in the array is generally not identical to the first. The researcher draws from some starting position and lifts the pen near (but not exactly at) that starting position, leaving a gap between the last captured point and the first. Rather than inserting additional points to physically close the gap, the application treats every shape as a closed polygon through modular indexing.
+
+Modular indexing means that when the algorithm needs "the next point after the last one," it wraps around to the first point. In code, this is expressed as `shape[(i + 1) % shape.length]`, where `%` is the modulo operator. For a shape with N points indexed 0 through N-1, the successor of point N-1 is point (N-1+1) % N = 0. The effect is that the point array is treated as a circular sequence rather than a linear one: after the last point, the path continues to the first point, closing the shape.
+
+This convention appears in three places in the application, each of which would produce incorrect results on an open path:
+
+First, in raycasting during radial averaging (Section 7). The ray-segment intersection loop iterates over all boundary segments. Without modular indexing, segment i connects point i to point i+1, but the final segment from point N-1 back to point 0 would be missing. The ray would pass through this gap without registering an intersection, and the radial distance at that angle would be zero. This would create a dent or collapse in the average shape wherever the gap happened to fall. With modular indexing, the closing segment from the last point to the first point is included in the intersection test like any other segment, so every ray finds the correct boundary.
+
+Second, in the shoelace formula for area calculation (Section 9). The formula sums cross-products of consecutive vertex coordinates. The final term in the sum pairs the last vertex with the first vertex. Without modular indexing, this term would be skipped, and the computed area would be incorrect (typically smaller than the true area, by an amount depending on the size and orientation of the gap).
+
+Third, in the signed area check for winding direction during normalization (Section 6). The same cross-product summation is used to determine whether the contour is clockwise or counterclockwise. If the closing term is omitted, the sign of the result can flip for certain shapes, causing the normalization to reverse a correctly-wound contour or leave a reversed one unchanged.
+
+In all three cases, modular indexing provides the same result that physically appending a copy of the first point to the end of the array would provide, but without duplicating data. The gap between the last and first points becomes just another edge of the polygon.
+
 ### Radial Resolution
 
 The number of angular samples N is configurable via a slider in the interface, with range 36 to 3600 and default 720. Higher resolution yields more precise shape reconstruction at the cost of computation time. At the default of 720, the angular spacing is 0.5 degrees.
@@ -301,7 +317,7 @@ Area is computed using the shoelace formula (also known as Gauss's area formula 
 Area = (1/2) * |sum_{i=0}^{n-1} (x_i * y_{i+1} - x_{i+1} * y_i)|
 ```
 
-where index arithmetic is modulo n so that the last vertex connects back to the first.
+where index arithmetic is modulo n so that the last vertex connects back to the first (see "Implicit Shape Closure via Modular Indexing" in Section 7 for a full explanation of why this matters for open traced paths).
 
 ### Intuition
 
@@ -390,6 +406,14 @@ Problem: The original export function drew the raw participant PNG images as bac
 Solution: The export function now draws each individual traced contour after resampling to 1000 uniformly spaced points. Every shape is rendered with identical stroke width and opacity, eliminating the drawing-speed artifacts present in the raw traces. The shapes are geometrically identical to the originals because resampling only redistributes point spacing along the existing path without altering the contour itself.
 
 Justification: Resampling to 1000 points is well above the Nyquist threshold for the level of detail in these hand-drawn contours. The uniform rendering makes it possible to visually distinguish individual participant shapes in the background of the exported composite, which was difficult when the originals had variable opacity and stroke width. The exported PNGs are packaged into a single ZIP file for convenience.
+
+### 10.9 Implicit Shape Closure via Modular Indexing
+
+Problem: Researchers trace contours by drawing from a starting position and lifting the pen near that starting position. The last captured point is almost never identical to the first, leaving a gap. If the algorithms that compute area, winding direction, and radial distances treated the point array as a linear sequence (ignoring the gap), the closing segment from the last point back to the first would be missing from all calculations. This would cause incorrect area values, potentially wrong winding direction assignments, and missing ray intersections wherever a ray passes through the gap.
+
+Solution: Every algorithm that needs to treat the shape as a closed polygon uses modular indexing: `shape[(i + 1) % shape.length]`. This expression means "the next point after index i, wrapping around to index 0 when i is the last index." The effect is that the point array is treated as a circular sequence. After the last point, the path continues to the first point, forming a closed boundary without any additional data being stored.
+
+Justification: This convention is applied consistently in three critical algorithms: the raycasting loop in radial averaging (where a missing closing segment would produce zero-distance readings at certain angles), the shoelace formula for area (where the missing final cross-product term would undercount the enclosed area), and the signed area check for winding direction (where the omitted term could flip the sign and cause incorrect normalization). A full explanation of each case is in Section 7 under "Implicit Shape Closure via Modular Indexing."
 
 ---
 
