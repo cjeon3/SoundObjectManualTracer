@@ -100,7 +100,7 @@
         <header class="text-center mb-6">
             <h1 class="text-4xl font-extrabold text-blue-800 mb-2">Sound Object Contour Tracer</h1>
             <p class="text-xl font-semibold text-gray-600">UCI Hearing & Speech Lab</p>
-            <p class="text-sm text-gray-400 mt-1">v5.2 — Last updated: February 4, 2026</p>
+            <p class="text-sm text-gray-400 mt-1">v5.3 — Last updated: February 5, 2026</p>
         </header>
         
         <!-- Upload -->
@@ -402,8 +402,43 @@
     </div>
 
 <script>
+/**
+ * Sound Object Contour Tracer v5.3
+ * UCI Hearing & Speech Lab - February 2026
+ * 
+ * Application for manually tracing sound object contours from participant drawings.
+ * Supports loading participant images, tracing shapes in red (0° IPD) and blue (90° IPD),
+ * computing frequency-based averages, and cloud collaboration via Google Sheets.
+ * 
+ * COORDINATE SYSTEM (matching original drawing app):
+ * - Canvas: 1000x1000 pixels
+ * - Grid: 20x20 units (-10 to +10 on both axes)
+ * - SCALE_FACTOR: 50 pixels per unit
+ * - Origin (0,0): Center of canvas (pixel 500, 500)
+ * - Y-axis: Positive upward (mathematical convention, inverted from canvas)
+ * 
+ * AREA CALCULATION:
+ * Uses pixel-based area calculation matching the original drawing app methodology:
+ * - Scans a grid at configurable resolution (default 0.1 units)
+ * - For closed shapes: counts cells inside polygon OR within brush radius of path
+ * - For open shapes: counts cells within brush radius of path segments
+ * - Brush radius = brushSize / SCALE_FACTOR / 2 (default: 5 / 50 / 2 = 0.05 units)
+ * - For closed shapes: subtracts outline area = perimeter * brushRadius * 2 * 0.50
+ * 
+ * CENTROID CALCULATION:
+ * Uses uniform path resampling to eliminate drawing-speed bias:
+ * - Resamples path to uniform spacing along arc length
+ * - Returns arithmetic mean of resampled points
+ * 
+ * CLOUD COLLABORATION:
+ * - Each tracer saves/loads independently via Google Apps Script
+ * - "Final" tracer supports incremental saves (only new shapes sent)
+ * - "Final: Replace Frequency" feature allows complete replacement of a specific
+ *   frequency's data to fix incorrect traces
+ */
+
 // ============================================
-// CONSTANTS - MATCHING ORIGINAL APP EXACTLY
+// CONSTANTS - MATCHING ORIGINAL DRAWING APP
 // ============================================
 const CANVAS_SIZE = 1000;
 const UNIT_RANGE = 10;
@@ -2041,9 +2076,12 @@ function calculateCentroid(shape) {
 }
 
 /**
- * Calculate area of a shape using the shoelace formula
- * Computes the signed area of a polygon from the cross-products of 
- * consecutive vertex coordinates. Returns the absolute value divided by two.
+ * Calculate area of a shape using the shoelace formula (for diagnostic/testing only)
+ * 
+ * NOTE: This function is NOT used for actual area calculations in the app.
+ * All production area calculations use calculatePixelBasedArea() to match
+ * the original drawing app methodology. This function is retained only for
+ * diagnostic comparisons in the test functions.
  * 
  * @param {Array} shape - Array of {x, y} points
  * @returns {number} Area in square grid units
@@ -2208,11 +2246,23 @@ function isPointInPolygon(x, y, polygon) {
 }
 
 /**
- * Pixel-based area calculation matching original drawing app
+ * Pixel-based area calculation matching original drawing app methodology
  * 
- * @param {Array} unitPoints - Array of {x, y} points in unit coordinates
- * @param {number} brushSizePixels - Brush size in pixels (default 5)
- * @param {number} resolution - Grid resolution for scanning (null for auto)
+ * This is the PRIMARY area calculation method used throughout the app.
+ * It matches the original drawing app by:
+ * 1. Computing brush radius as: brushSize / SCALE_FACTOR / 2
+ * 2. Scanning a grid within the shape's bounding box (plus brush radius margin)
+ * 3. Counting cells that are either:
+ *    - Inside the polygon (for closed shapes), OR
+ *    - Within brush radius of any path segment
+ * 4. For closed shapes: subtracting outline area = perimeter * (brushRadius * 2) * 0.50
+ * 
+ * Closed shape detection uses gap percentage and rotation analysis, and may
+ * add interpolated closure points between last and first point if needed.
+ * 
+ * @param {Array} unitPoints - Array of {x, y} points in unit coordinates (-10 to +10)
+ * @param {number} brushSizePixels - Brush size in pixels (default 5, matching app default)
+ * @param {number} resolution - Grid resolution for scanning in units (null for auto-select)
  * @returns {number} Area in square grid units
  */
 function calculatePixelBasedArea(unitPoints, brushSizePixels = 5, resolution = null) {
@@ -2933,17 +2983,20 @@ function updateFreqCompositesGallery() {
         
         hasData = true;
         
-        // Calculate area and centroid on the AVERAGE shapes (pixel-based area matching original drawing app)
-        const redAvgArea = data.redAvg ? calculatePixelBasedArea(data.redAvg, brushSize) : 0;
-        const blueAvgArea = data.blueAvg ? calculatePixelBasedArea(data.blueAvg, brushSize) : 0;
-        const redCentroid = data.redAvg ? calculateCentroid(data.redAvg) : null;
-        const blueCentroid = data.blueAvg ? calculateCentroid(data.blueAvg) : null;
-        
-        // Store calculated values back to data object
-        data.redArea = redAvgArea;
-        data.blueArea = blueAvgArea;
-        data.redCentroid = redCentroid;
-        data.blueCentroid = blueCentroid;
+        // Area and centroid are already calculated by generateFrequencyAverages() or doBulk()
+        // Only recalculate if missing (defensive check)
+        if (data.redAvg && !data.redCentroid) {
+            data.redCentroid = calculateCentroid(data.redAvg);
+        }
+        if (data.redAvg && !data.redArea) {
+            data.redArea = calculatePixelBasedArea(data.redAvg, brushSize);
+        }
+        if (data.blueAvg && !data.blueCentroid) {
+            data.blueCentroid = calculateCentroid(data.blueAvg);
+        }
+        if (data.blueAvg && !data.blueArea) {
+            data.blueArea = calculatePixelBasedArea(data.blueAvg, brushSize);
+        }
         
         // Create card
         const card = document.createElement('div');
@@ -3207,10 +3260,14 @@ function updateFreqCompositesGallery() {
 /**
  * Circle Approximation & Shift Analysis
  * 
- * For each frequency, uses the pixel-based area (matching original drawing app)
- * and centroid of each average contour to derive an equivalent perfect circle
- * (r = sqrt(area / pi), centered at the contour centroid). Computes the
- * Euclidean shift between red and blue circle centers.
+ * Displays analysis of frequency-averaged contours as equivalent circles:
+ * - Area: Calculated using pixel-based method matching original drawing app
+ * - Radius: r = sqrt(area / pi) - the radius of a perfect circle with same area
+ * - Center: Centroid of the average contour (calculated via uniform path resampling)
+ * - Shift: Euclidean distance between red (0° IPD) and blue (90° IPD) centroids
+ * 
+ * Also shows comparison to manuscript values for 500, 1000, 2000 Hz with ratios
+ * to help identify discrepancies between tracing app and original data.
  */
 function updateCircleApproxAnalysis() {
     const panel = document.getElementById('circle-approx-analysis');
@@ -3835,7 +3892,7 @@ function expCSV() {
 }
 
 function expJSON() {
-    const ex = { exportDate: new Date().toISOString(), version: '5.2', settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize, radialResolution }, allData };
+    const ex = { exportDate: new Date().toISOString(), version: '5.3', settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize, radialResolution }, allData };
     saveAs(new Blob([JSON.stringify(ex, null, 2)], { type: 'application/json' }), `contour_${new Date().toISOString().slice(0, 10)}.json`);
     status('JSON exported');
 }
@@ -4130,8 +4187,18 @@ function populateFinalFrequencyDropdown() {
 }
 
 /**
- * Replace ALL data for a specific frequency in Final tracer
- * This deletes existing data for that frequency and replaces it with current local data
+ * Replace ALL data for a specific frequency in the "Final" tracer on the cloud.
+ * 
+ * Use case: When a frequency (e.g., 500 Hz) has incorrect or duplicate traces
+ * and needs to be completely re-done.
+ * 
+ * Process:
+ * 1. Collects all local data for the selected frequency across all participants/trials
+ * 2. Sends a 'replaceFinalFrequency' action to the Google Apps Script
+ * 3. Server deletes ALL existing rows for Final/[frequency] and inserts new data
+ * 4. Updates local _finalSnapshot to reflect the replacement
+ * 
+ * Warning: This operation cannot be undone. Requires user confirmation.
  */
 async function replaceFinalFrequency() {
     const url = getCloudUrl();
@@ -4269,14 +4336,59 @@ async function loadFromCloud(tracerNameOverride = null, mergeMode = false, fromC
         setCloudStatus('☁️ Loading from cloud...');
         status('Loading from cloud...');
         
-        // For Final: always use loadProgress (TracerProgress holds the complete
-        // merged dataset). For other tracers: use loadAllFromCoordinates when
-        // fromCoordinates is true to get full history.
+        // For Final: use loadCoordinates to reconstruct from point data
+        // (TracerProgress has corrupted JSON, CoordinateData has intact point data)
+        // For other tracers: use loadCoordinates when fromCoordinates is true
         const isFinal = (tracerName === 'Final');
-        const action = isFinal ? 'loadProgress' :
-                       (fromCoordinates ? 'loadAllFromCoordinates' : 'loadProgress');
-        const response = await fetch(`${url}?action=${action}&tracerName=${encodeURIComponent(tracerName)}`);
-        const data = await response.json();
+        const action = isFinal ? 'loadCoordinates' :
+                       (fromCoordinates ? 'loadCoordinates' : 'loadProgress');
+        
+        const fetchUrl = `${url}?action=${action}&tracerName=${encodeURIComponent(tracerName)}`;
+        console.log('[loadFromCloud] Fetching:', fetchUrl);
+        
+        const response = await fetch(fetchUrl);
+        console.log('[loadFromCloud] Response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        // Get raw text first to debug JSON issues
+        const rawText = await response.text();
+        console.log('[loadFromCloud] Response length:', rawText.length, 'characters');
+        
+        // Try to parse JSON with better error reporting
+        let data;
+        try {
+            data = JSON.parse(rawText);
+        } catch (parseError) {
+            console.error('[loadFromCloud] JSON parse error:', parseError);
+            console.error('[loadFromCloud] Error position:', parseError.message);
+            
+            // Try to show context around the error
+            const match = parseError.message.match(/position (\d+)/);
+            if (match) {
+                const pos = parseInt(match[1]);
+                const start = Math.max(0, pos - 100);
+                const end = Math.min(rawText.length, pos + 100);
+                console.error('[loadFromCloud] Context around error:');
+                console.error('...', rawText.substring(start, pos), '<<<ERROR HERE>>>', rawText.substring(pos, end), '...');
+            }
+            
+            // Check for common issues
+            if (rawText.includes('<!DOCTYPE') || rawText.includes('<html')) {
+                throw new Error('Server returned HTML instead of JSON. Check Apps Script deployment.');
+            }
+            
+            throw new Error(`JSON parse failed: ${parseError.message}`);
+        }
+        
+        console.log('[loadFromCloud] Parsed data keys:', Object.keys(data));
+        
+        // Check for parse errors from server
+        if (data.parseErrors && data.parseErrors.length > 0) {
+            console.warn('[loadFromCloud] Server reported parse errors:', data.parseErrors);
+        }
         
         if (data.error) {
             setCloudStatus('❌ ' + data.error, true);
@@ -4285,6 +4397,15 @@ async function loadFromCloud(tracerNameOverride = null, mergeMode = false, fromC
         }
         
         if (data.allData) {
+            const participantCount = Object.keys(data.allData).length;
+            console.log('[loadFromCloud] Loaded', participantCount, 'participants');
+            
+            // Log any parse errors but continue loading
+            if (data.parseErrors && data.parseErrors.length > 0) {
+                console.warn('[loadFromCloud] Some rows had parse errors (data may be incomplete):');
+                data.parseErrors.forEach(err => console.warn('  -', err));
+            }
+            
             if (mergeMode) {
                 // Merge with existing data instead of replacing
                 mergeDataInto(allData, data.allData);
@@ -4322,7 +4443,8 @@ async function loadFromCloud(tracerNameOverride = null, mergeMode = false, fromC
             setCloudStatus('⚠️ No data found for ' + tracerName);
         }
     } catch (e) {
-        setCloudStatus('❌ Load failed: ' + e.message, true);
+        console.error('[loadFromCloud] Error:', e);
+        setCloudStatus('❌ ' + e.message, true);
         status('Cloud load failed');
     }
 }
@@ -4434,9 +4556,21 @@ async function listTracers() {
     
     try {
         setCloudStatus('☁️ Fetching tracer list...');
+        console.log('[listTracers] Fetching from:', `${url}?action=listTracers`);
         
         const response = await fetch(`${url}?action=listTracers`);
+        console.log('[listTracers] Response status:', response.status, response.statusText);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const data = await response.json();
+        console.log('[listTracers] Response data:', data);
+        
+        if (data.error) {
+            throw new Error(data.error);
+        }
         
         const select = document.getElementById('tracer-select');
         select.innerHTML = '<option value="">-- Select tracer to load --</option>';
@@ -4445,16 +4579,68 @@ async function listTracers() {
             data.tracers.forEach(t => {
                 const opt = document.createElement('option');
                 opt.value = t.name;
+                // Handle both savedAt and lastSaved for compatibility
+                const dateStr = t.savedAt || t.lastSaved;
+                let formattedDate = 'unknown date';
+                if (dateStr) {
+                    try {
+                        formattedDate = new Date(dateStr).toLocaleDateString();
+                    } catch (e) {
+                        formattedDate = dateStr;
+                    }
+                }
                 const protectedLabel = t.isProtected ? ' [PROTECTED]' : '';
-                opt.textContent = `${t.name}${protectedLabel} (${t.totalShapes} shapes, saved ${new Date(t.savedAt).toLocaleDateString()})`;
+                opt.textContent = `${t.name}${protectedLabel} (${t.totalShapes} shapes, saved ${formattedDate})`;
                 select.appendChild(opt);
             });
             setCloudStatus(`✅ Found ${data.tracers.length} tracers`);
         } else {
-            setCloudStatus('⚠️ No tracers found');
+            setCloudStatus('⚠️ No tracers found (sheet may be empty)');
+            console.log('[listTracers] No tracers in response. Check if TracerProgress sheet exists and has data.');
         }
     } catch (e) {
+        console.error('[listTracers] Error:', e);
         setCloudStatus('❌ Failed to list tracers: ' + e.message, true);
+    }
+}
+
+/**
+ * Test connection to cloud API
+ * Call from console: testCloudConnection()
+ */
+async function testCloudConnection() {
+    const url = getCloudUrl();
+    if (!url) {
+        console.error('[testCloudConnection] No URL configured. Set the Apps Script URL first.');
+        return { error: 'No URL configured' };
+    }
+    
+    console.log('[testCloudConnection] Testing connection to:', url);
+    
+    try {
+        // Test 1: Basic connection (no action)
+        console.log('[testCloudConnection] Test 1: Basic endpoint...');
+        const resp1 = await fetch(url);
+        const data1 = await resp1.json();
+        console.log('[testCloudConnection] Basic response:', data1);
+        
+        // Test 2: testConnection action
+        console.log('[testCloudConnection] Test 2: testConnection action...');
+        const resp2 = await fetch(`${url}?action=testConnection`);
+        const data2 = await resp2.json();
+        console.log('[testCloudConnection] testConnection response:', data2);
+        
+        // Test 3: listTracers action
+        console.log('[testCloudConnection] Test 3: listTracers action...');
+        const resp3 = await fetch(`${url}?action=listTracers`);
+        const data3 = await resp3.json();
+        console.log('[testCloudConnection] listTracers response:', data3);
+        
+        console.log('[testCloudConnection] All tests complete!');
+        return { basic: data1, testConnection: data2, listTracers: data3 };
+    } catch (e) {
+        console.error('[testCloudConnection] Error:', e);
+        return { error: e.message };
     }
 }
 
@@ -4953,6 +5139,66 @@ window.runZipParsingTests = runZipParsingTests;
 
 // Make test function available globally
 window.runContourTests = runContourTests;
+
+// Make diagnostic and cloud test functions available globally
+window.runDataDiagnostics = runDataDiagnostics;
+window.listShapesByParticipant = listShapesByParticipant;
+window.compareCentroidMethods = compareCentroidMethods;
+window.testCloudConnection = testCloudConnection;
+
+/**
+ * Print all available console diagnostic commands
+ * Call from console: help() or showDiagnostics()
+ */
+function showDiagnostics() {
+    console.log(`
+╔══════════════════════════════════════════════════════════════════════════════╗
+║           SOUND OBJECT CONTOUR TRACER - CONSOLE DIAGNOSTICS                  ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  DATA ANALYSIS:                                                              ║
+║  ─────────────                                                               ║
+║  runDataDiagnostics()      - Compare tracing app data to manuscript values   ║
+║                              Shows shape counts, centroids, areas, shifts    ║
+║                              for 500, 1000, 2000 Hz with ratio comparisons   ║
+║                                                                              ║
+║  listShapesByParticipant() - List all shapes grouped by participant/trial    ║
+║                              Use to identify duplicate or missing shapes     ║
+║                                                                              ║
+║  compareCentroidMethods()  - Compare simple average vs resampled centroid    ║
+║                              Shows difference between methods                ║
+║                                                                              ║
+║  CLOUD CONNECTION:                                                           ║
+║  ─────────────────                                                           ║
+║  testCloudConnection()     - Test connection to Google Apps Script           ║
+║                              Runs 3 tests: basic, testConnection, listTracers║
+║                              Use to debug cloud sync issues                  ║
+║                                                                              ║
+║  GEOMETRY TESTS:                                                             ║
+║  ───────────────                                                             ║
+║  runContourTests()         - Test contour normalization and averaging        ║
+║                              Verifies CW/CCW detection, alignment, area      ║
+║                                                                              ║
+║  runZipParsingTests()      - Test ZIP file parsing logic                     ║
+║                              Verifies participant/frequency extraction       ║
+║                                                                              ║
+║  DATA ACCESS:                                                                ║
+║  ────────────                                                                ║
+║  allData                   - Current trace data (all participants/trials)    ║
+║  frequencyAverages         - Current frequency average data                  ║
+║  images                    - Loaded participant images                       ║
+║                                                                              ║
+║  QUICK CHECKS:                                                               ║
+║  ─────────────                                                               ║
+║  Object.keys(allData)      - List all loaded participants                    ║
+║  Object.keys(frequencyAverages) - List all frequencies with averages         ║
+║  frequencyAverages['500']  - View data for specific frequency                ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+`);
+}
+window.showDiagnostics = showDiagnostics;
+window.help = showDiagnostics;
 
 // ============================================
 // INIT
