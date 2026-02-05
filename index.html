@@ -100,7 +100,7 @@
         <header class="text-center mb-6">
             <h1 class="text-4xl font-extrabold text-blue-800 mb-2">Sound Object Contour Tracer</h1>
             <p class="text-xl font-semibold text-gray-600">UCI Hearing & Speech Lab</p>
-            <p class="text-sm text-gray-400 mt-1">v5.1 — Last updated: February 2, 2026</p>
+            <p class="text-sm text-gray-400 mt-1">v5.2 — Last updated: February 4, 2026</p>
         </header>
         
         <!-- Upload -->
@@ -253,8 +253,15 @@
             <!-- Centroid Analysis Panel: mean-of-centroids vs centroid-of-average -->
             <div id="centroid-analysis" class="hidden mt-6 border-t-2 border-emerald-300 pt-4">
                 <h3 class="font-bold text-emerald-800 mb-2">Centroid Shift Analysis</h3>
-                <p class="text-xs text-gray-500 mb-3">Compares two methods of computing centroid shift between red (0° IPD) and blue (90° IPD) shapes. The mean-of-individual-centroids reflects per-shape centroid positions averaged arithmetically. The centroid-of-average-contour is the geometric centroid of the area-weighted average shape. Discrepancies indicate that shape asymmetries in the averaged contour shift the centroid beyond what per-shape centroids predict.</p>
+                <p class="text-xs text-gray-500 mb-3">Compares two methods of computing centroid shift between red (0° IPD) and blue (90° IPD) shapes. The mean-of-individual-centroids reflects per-shape centroid positions averaged arithmetically. The centroid-of-average-contour is the geometric centroid of the equal-weight average shape. Discrepancies indicate that shape asymmetries in the averaged contour shift the centroid beyond what per-shape centroids predict.</p>
                 <div id="centroid-analysis-table" class="overflow-x-auto"></div>
+            </div>
+            
+            <!-- Circle Approximation & Shift Analysis -->
+            <div id="circle-approx-analysis" class="hidden mt-6 border-t-2 border-emerald-300 pt-4">
+                <h3 class="font-bold text-emerald-800 mb-2">Circle Approximation &amp; Shift Analysis</h3>
+                <p class="text-xs text-gray-500 mb-3">For each frequency, the area of each average contour (red and blue) is used to derive the radius of an equivalent perfect circle: r = sqrt(area / pi). The centroid of each average contour serves as the circle center. The shift is the Euclidean distance between the red and blue circle centers. This provides a simplified geometric summary for comparison against raw spreadsheet data.</p>
+                <div id="circle-approx-table" class="overflow-x-auto"></div>
             </div>
         </div>
         
@@ -299,6 +306,19 @@
                     <button id="auto-cloud-toggle" class="px-4 py-2 rounded-xl font-bold text-sm bg-amber-500 text-white shadow">⚡ Auto-Save: OFF</button>
                     <span class="text-xs text-gray-500">Auto-saves to cloud after each shape</span>
                 </div>
+            </div>
+            
+            <!-- Final Frequency Replacement -->
+            <div class="border-t border-indigo-200 pt-4 mt-4">
+                <h4 class="font-semibold text-red-700 mb-2">⚠️ Final: Replace Frequency Data</h4>
+                <p class="text-xs text-gray-600 mb-2">Replace ALL existing data for a specific frequency in the "Final" tracer. Use this to fix incorrect traces.</p>
+                <div class="flex gap-2 mb-2">
+                    <select id="final-freq-select" class="flex-1 px-3 py-2 border-2 border-red-300 rounded-xl text-sm">
+                        <option value="">-- Select frequency to replace --</option>
+                    </select>
+                    <button id="final-replace-btn" class="px-4 py-2 rounded-xl font-bold text-sm bg-red-600 text-white shadow">🔄 Replace in Final</button>
+                </div>
+                <p class="text-xs text-red-500">Warning: This will DELETE all existing data for the selected frequency in Final and replace it with current local data.</p>
             </div>
             
             <p id="cloud-status" class="text-xs text-gray-500 mt-3"></p>
@@ -1801,6 +1821,11 @@ function clearAvgCur() {
     gallery.innerHTML = '<div class="border-2 border-dashed border-emerald-200 rounded-xl p-6 text-center text-gray-400 text-sm col-span-full">Click "Generate Averages" to create composite images</div>';
     
     document.getElementById('freq-avg-status').textContent = 'All averages cleared';
+    
+    // Hide analysis panels
+    document.getElementById('centroid-analysis').classList.add('hidden');
+    document.getElementById('circle-approx-analysis').classList.add('hidden');
+    
     status('Cleared all averages');
 }
 
@@ -1905,7 +1930,7 @@ function doBulk() {
             if (avgShape) {
                 frequencyAverages[hz].redAvg = avgShape;
                 frequencyAverages[hz].redCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hz].redArea = calculateAreaShoelace(avgShape);
+                frequencyAverages[hz].redArea = calculatePixelBasedArea(avgShape, brushSize);
             }
         }
         if (frequencyAverages[hz].blueShapes.length > 0) {
@@ -1913,7 +1938,7 @@ function doBulk() {
             if (avgShape) {
                 frequencyAverages[hz].blueAvg = avgShape;
                 frequencyAverages[hz].blueCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hz].blueArea = calculateAreaShoelace(avgShape);
+                frequencyAverages[hz].blueArea = calculatePixelBasedArea(avgShape, brushSize);
             }
         }
     }
@@ -1923,6 +1948,7 @@ function doBulk() {
     
     // Update the frequency composites gallery
     updateFreqCompositesGallery();
+    updateCircleApproxAnalysis();
 }
 
 // ============================================
@@ -2033,6 +2059,519 @@ function calculateAreaShoelace(shape) {
     return Math.abs(area) / 2;
 }
 
+// ============================================
+// PIXEL-BASED AREA CALCULATION (MATCHING ORIGINAL DRAWING APP)
+// ============================================
+
+/**
+ * Calculate path length of a shape in unit coordinates
+ */
+function calculatePathLength(unitPoints) {
+    let length = 0;
+    for (let i = 0; i < unitPoints.length - 1; i++) {
+        const p1 = unitPoints[i];
+        const p2 = unitPoints[i + 1];
+        length += Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
+    }
+    return length;
+}
+
+/**
+ * Calculate distance from point to line segment
+ */
+function distanceToSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lengthSquared = dx * dx + dy * dy;
+    
+    if (lengthSquared === 0) {
+        return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
+    }
+    
+    let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
+    t = Math.max(0, Math.min(1, t));
+    
+    const closestX = x1 + t * dx;
+    const closestY = y1 + t * dy;
+    
+    return Math.sqrt((px - closestX) * (px - closestX) + (py - closestY) * (py - closestY));
+}
+
+/**
+ * Check if shape is closed (matching original app logic)
+ * May modify unitPoints to add closure points if needed
+ */
+function isShapeClosedOriginal(unitPoints) {
+    if (unitPoints.length < 10) return false;
+    
+    const first = unitPoints[0];
+    const last = unitPoints[unitPoints.length - 1];
+    
+    const closureDistance = Math.sqrt(
+        (last.x - first.x) ** 2 + (last.y - first.y) ** 2
+    );
+    
+    const pathLength = calculatePathLength(unitPoints);
+    const avgSegment = pathLength / (unitPoints.length - 1);
+    
+    const gapPercentage = (closureDistance / pathLength) * 100;
+    
+    // Calculate total angle change (rotation)
+    let totalAngleChange = 0;
+    
+    for (let i = 1; i < unitPoints.length - 1; i++) {
+        const p0 = unitPoints[i - 1];
+        const p1 = unitPoints[i];
+        const p2 = unitPoints[i + 1];
+        
+        const v1x = p1.x - p0.x;
+        const v1y = p1.y - p0.y;
+        const v2x = p2.x - p1.x;
+        const v2y = p2.y - p1.y;
+        
+        const mag1 = Math.sqrt(v1x * v1x + v1y * v1y);
+        const mag2 = Math.sqrt(v2x * v2x + v2y * v2y);
+        
+        if (mag1 > 0 && mag2 > 0) {
+            const dot = v1x * v2x + v1y * v2y;
+            const cosAngle = dot / (mag1 * mag2);
+            const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
+            totalAngleChange += angle;
+        }
+    }
+    
+    const fullRotation = 2 * Math.PI;
+    const rotationPercentage = (totalAngleChange / fullRotation) * 100;
+    
+    // Strategy 1: Very tight closure
+    if (gapPercentage < 2.0) {
+        if (closureDistance > avgSegment * 0.5) {
+            const steps = Math.max(3, Math.ceil(closureDistance / avgSegment));
+            for (let i = 1; i < steps; i++) {
+                const t = i / steps;
+                unitPoints.push({
+                    x: last.x + (first.x - last.x) * t,
+                    y: last.y + (first.y - last.y) * t
+                });
+            }
+        }
+        return true;
+    }
+    
+    // Strategy 2: Good rotation with reasonable gap
+    if (gapPercentage < 10.0 && rotationPercentage >= 70.0) {
+        if (closureDistance > avgSegment * 0.5) {
+            const steps = Math.max(3, Math.ceil(closureDistance / avgSegment));
+            for (let i = 1; i < steps; i++) {
+                const t = i / steps;
+                unitPoints.push({
+                    x: last.x + (first.x - last.x) * t,
+                    y: last.y + (first.y - last.y) * t
+                });
+            }
+        }
+        return true;
+    }
+    
+    // Strategy 3: Excellent rotation with slightly larger gap
+    if (gapPercentage < 15.0 && rotationPercentage >= 85.0) {
+        if (closureDistance > avgSegment * 0.5) {
+            const steps = Math.max(3, Math.ceil(closureDistance / avgSegment));
+            for (let i = 1; i < steps; i++) {
+                const t = i / steps;
+                unitPoints.push({
+                    x: last.x + (first.x - last.x) * t,
+                    y: last.y + (first.y - last.y) * t
+                });
+            }
+        }
+        return true;
+    }
+    
+    return false;
+}
+
+/**
+ * Point-in-polygon test using ray casting
+ */
+function isPointInPolygon(x, y, polygon) {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i].x, yi = polygon[i].y;
+        const xj = polygon[j].x, yj = polygon[j].y;
+        
+        const intersect = ((yi > y) !== (yj > y))
+            && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+/**
+ * Pixel-based area calculation matching original drawing app
+ * 
+ * @param {Array} unitPoints - Array of {x, y} points in unit coordinates
+ * @param {number} brushSizePixels - Brush size in pixels (default 5)
+ * @param {number} resolution - Grid resolution for scanning (null for auto)
+ * @returns {number} Area in square grid units
+ */
+function calculatePixelBasedArea(unitPoints, brushSizePixels = 5, resolution = null) {
+    if (unitPoints.length === 0) return 0;
+    
+    // Make a copy to avoid modifying the original
+    const points = unitPoints.map(p => ({ x: p.x, y: p.y }));
+    
+    const isClosed = isShapeClosedOriginal(points);
+    
+    // Match original app: brushRadius = brushSize / SCALE_FACTOR / 2
+    // SCALE_FACTOR = 1000 / 20 = 50
+    const fullBrushRadius = brushSizePixels / SCALE_FACTOR / 2;
+    const brushRadius = fullBrushRadius;
+    
+    if (resolution === null) {
+        if (brushRadius < 0.05) {
+            resolution = 0.05;
+        } else if (brushRadius < 0.1) {
+            resolution = 0.075;
+        } else {
+            resolution = 0.1;
+        }
+    }
+    
+    // Find bounding box
+    let minX = points[0].x, maxX = points[0].x;
+    let minY = points[0].y, maxY = points[0].y;
+    
+    for (const p of points) {
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+    }
+    
+    minX -= brushRadius;
+    maxX += brushRadius;
+    minY -= brushRadius;
+    maxY += brushRadius;
+    
+    let paintedCells = 0;
+    
+    for (let x = minX; x <= maxX; x += resolution) {
+        for (let y = minY; y <= maxY; y += resolution) {
+            let isPainted = false;
+            
+            if (isClosed) {
+                if (isPointInPolygon(x, y, points)) {
+                    isPainted = true;
+                } else {
+                    for (let i = 0; i < points.length - 1; i++) {
+                        const p1 = points[i];
+                        const p2 = points[i + 1];
+                        const dist = distanceToSegment(x, y, p1.x, p1.y, p2.x, p2.y);
+                        if (dist <= brushRadius) {
+                            isPainted = true;
+                            break;
+                        }
+                    }
+                }
+            } else {
+                for (let i = 0; i < points.length - 1; i++) {
+                    const p1 = points[i];
+                    const p2 = points[i + 1];
+                    const dist = distanceToSegment(x, y, p1.x, p1.y, p2.x, p2.y);
+                    if (dist <= brushRadius) {
+                        isPainted = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (isPainted) {
+                paintedCells++;
+            }
+        }
+    }
+    
+    const cellArea = resolution * resolution;
+    const totalArea = paintedCells * cellArea;
+    
+    let adjustedArea = totalArea;
+    
+    // Subtract outline area for closed shapes (matching original app)
+    if (isClosed) {
+        let perimeter = 0;
+        for (let i = 0; i < points.length; i++) {
+            const p1 = points[i];
+            const p2 = points[(i + 1) % points.length];
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            perimeter += Math.sqrt(dx * dx + dy * dy);
+        }
+        
+        const outlineArea = perimeter * (brushRadius * 2) * 0.50;
+        adjustedArea = Math.max(0, totalArea - outlineArea);
+    }
+    
+    return adjustedArea;
+}
+
+// ============================================
+// DIAGNOSTIC FUNCTIONS FOR DATA COMPARISON
+// ============================================
+
+/**
+ * Run comprehensive diagnostics comparing tracing app data to expected values
+ * Call from console: runDataDiagnostics()
+ */
+function runDataDiagnostics() {
+    console.log('='.repeat(70));
+    console.log('DATA DIAGNOSTICS: Comparing Tracing App to Original Drawing App');
+    console.log('='.repeat(70));
+    
+    const targetFreqs = [500, 1000, 2000];
+    
+    for (const hz of targetFreqs) {
+        const hzKey = String(hz);
+        const data = frequencyAverages[hzKey];
+        
+        if (!data) {
+            console.log(`\n${hz} Hz: No data found`);
+            continue;
+        }
+        
+        console.log(`\n${'='.repeat(50)}`);
+        console.log(`${hz} Hz ANALYSIS`);
+        console.log('='.repeat(50));
+        
+        // Shape counts
+        console.log(`\nShape Counts:`);
+        console.log(`  Red shapes: ${data.redShapes ? data.redShapes.length : 0}`);
+        console.log(`  Blue shapes: ${data.blueShapes ? data.blueShapes.length : 0}`);
+        
+        // List participants for each shape
+        if (data.redShapes && data.redShapes.length > 0) {
+            console.log(`\nRed shapes breakdown:`);
+            // We'd need to track source participant - for now just show count
+        }
+        
+        // Centroid analysis for individual shapes
+        console.log(`\n--- Individual Shape Centroids ---`);
+        
+        let redCentroids = [];
+        let blueCentroids = [];
+        
+        if (data.redShapes) {
+            data.redShapes.forEach((shape, idx) => {
+                const c = calculateCentroid(shape);
+                if (c && isFinite(c.x) && isFinite(c.y)) {
+                    redCentroids.push(c);
+                    console.log(`  Red[${idx}]: centroid=(${c.x.toFixed(4)}, ${c.y.toFixed(4)})`);
+                }
+            });
+        }
+        
+        if (data.blueShapes) {
+            data.blueShapes.forEach((shape, idx) => {
+                const c = calculateCentroid(shape);
+                if (c && isFinite(c.x) && isFinite(c.y)) {
+                    blueCentroids.push(c);
+                    console.log(`  Blue[${idx}]: centroid=(${c.x.toFixed(4)}, ${c.y.toFixed(4)})`);
+                }
+            });
+        }
+        
+        // Mean of individual centroids
+        if (redCentroids.length > 0) {
+            const meanRedX = redCentroids.reduce((s, c) => s + c.x, 0) / redCentroids.length;
+            const meanRedY = redCentroids.reduce((s, c) => s + c.y, 0) / redCentroids.length;
+            console.log(`\n  Mean Red Centroid: (${meanRedX.toFixed(4)}, ${meanRedY.toFixed(4)})`);
+        }
+        
+        if (blueCentroids.length > 0) {
+            const meanBlueX = blueCentroids.reduce((s, c) => s + c.x, 0) / blueCentroids.length;
+            const meanBlueY = blueCentroids.reduce((s, c) => s + c.y, 0) / blueCentroids.length;
+            console.log(`  Mean Blue Centroid: (${meanBlueX.toFixed(4)}, ${meanBlueY.toFixed(4)})`);
+        }
+        
+        // Shift from mean of individual centroids
+        if (redCentroids.length > 0 && blueCentroids.length > 0) {
+            const meanRedX = redCentroids.reduce((s, c) => s + c.x, 0) / redCentroids.length;
+            const meanRedY = redCentroids.reduce((s, c) => s + c.y, 0) / redCentroids.length;
+            const meanBlueX = blueCentroids.reduce((s, c) => s + c.x, 0) / blueCentroids.length;
+            const meanBlueY = blueCentroids.reduce((s, c) => s + c.y, 0) / blueCentroids.length;
+            
+            const shiftFromMeans = Math.sqrt(
+                (meanBlueX - meanRedX) ** 2 + (meanBlueY - meanRedY) ** 2
+            );
+            console.log(`\n  Shift (from mean of individual centroids): ${shiftFromMeans.toFixed(4)}`);
+        }
+        
+        // Average contour analysis
+        console.log(`\n--- Average Contour Analysis ---`);
+        
+        if (data.redAvg) {
+            const avgRedCentroid = data.redCentroid;
+            const pixelArea = calculatePixelBasedArea(data.redAvg, brushSize);
+            const radius = Math.sqrt(pixelArea / Math.PI);
+            
+            console.log(`  Red Avg Contour:`);
+            console.log(`    Centroid: (${avgRedCentroid.x.toFixed(4)}, ${avgRedCentroid.y.toFixed(4)})`);
+            console.log(`    Area (pixel-based): ${pixelArea.toFixed(4)}`);
+            console.log(`    Radius: ${radius.toFixed(4)}`);
+        }
+        
+        if (data.blueAvg) {
+            const avgBlueCentroid = data.blueCentroid;
+            const pixelArea = calculatePixelBasedArea(data.blueAvg, brushSize);
+            const radius = Math.sqrt(pixelArea / Math.PI);
+            
+            console.log(`  Blue Avg Contour:`);
+            console.log(`    Centroid: (${avgBlueCentroid.x.toFixed(4)}, ${avgBlueCentroid.y.toFixed(4)})`);
+            console.log(`    Area (pixel-based): ${pixelArea.toFixed(4)}`);
+            console.log(`    Radius: ${radius.toFixed(4)}`);
+        }
+        
+        // Shift from average contour centroids
+        if (data.redCentroid && data.blueCentroid) {
+            const shiftFromAvg = Math.sqrt(
+                (data.blueCentroid.x - data.redCentroid.x) ** 2 +
+                (data.blueCentroid.y - data.redCentroid.y) ** 2
+            );
+            console.log(`\n  Shift (from avg contour centroids): ${shiftFromAvg.toFixed(4)}`);
+        }
+        
+        // Compare to manuscript values
+        const manuscriptData = {
+            500: { shift: 0.5287, r: 0.4209 },
+            1000: { shift: 0.5032, r: 0.3775 },
+            2000: { shift: 0.1688, r: 0.3543 }
+        };
+        
+        if (manuscriptData[hz]) {
+            console.log(`\n--- Comparison to Manuscript ---`);
+            console.log(`  Manuscript Shift: ${manuscriptData[hz].shift}`);
+            console.log(`  Manuscript r: ${manuscriptData[hz].r}`);
+            
+            if (data.redCentroid && data.blueCentroid) {
+                const tracingShift = Math.sqrt(
+                    (data.blueCentroid.x - data.redCentroid.x) ** 2 +
+                    (data.blueCentroid.y - data.redCentroid.y) ** 2
+                );
+                const ratio = tracingShift / manuscriptData[hz].shift;
+                console.log(`  Tracing App Shift: ${tracingShift.toFixed(4)}`);
+                console.log(`  Ratio (Tracing/Manuscript): ${ratio.toFixed(4)}`);
+            }
+            
+            if (data.redAvg) {
+                const avgArea = calculatePixelBasedArea(data.redAvg, brushSize);
+                const avgRadius = Math.sqrt(avgArea / Math.PI);
+                const radiusRatio = avgRadius / manuscriptData[hz].r;
+                console.log(`  Tracing App Red r: ${avgRadius.toFixed(4)}`);
+                console.log(`  Radius Ratio (Tracing/Manuscript): ${radiusRatio.toFixed(4)}`);
+            }
+        }
+    }
+    
+    console.log('\n' + '='.repeat(70));
+    console.log('END DIAGNOSTICS');
+    console.log('='.repeat(70));
+}
+
+/**
+ * List all shapes by participant to identify duplicates
+ * Call from console: listShapesByParticipant()
+ */
+function listShapesByParticipant() {
+    console.log('='.repeat(70));
+    console.log('SHAPES BY PARTICIPANT AND FREQUENCY');
+    console.log('='.repeat(70));
+    
+    const shapesByFreqParticipant = {};
+    
+    for (const participant of Object.keys(allData)) {
+        for (const trial of Object.keys(allData[participant])) {
+            for (const freqKey of Object.keys(allData[participant][trial])) {
+                const data = allData[participant][trial][freqKey];
+                const hz = parseFloat(freqKey);
+                
+                if (!shapesByFreqParticipant[hz]) {
+                    shapesByFreqParticipant[hz] = {};
+                }
+                
+                const key = `${participant}|${trial}`;
+                if (!shapesByFreqParticipant[hz][key]) {
+                    shapesByFreqParticipant[hz][key] = { red: 0, blue: 0 };
+                }
+                
+                shapesByFreqParticipant[hz][key].red += data.red ? data.red.length : 0;
+                shapesByFreqParticipant[hz][key].blue += data.blue ? data.blue.length : 0;
+            }
+        }
+    }
+    
+    const targetFreqs = [500, 1000, 2000];
+    
+    for (const hz of targetFreqs) {
+        console.log(`\n${hz} Hz:`);
+        const participants = shapesByFreqParticipant[hz];
+        if (!participants) {
+            console.log('  No data');
+            continue;
+        }
+        
+        let totalRed = 0, totalBlue = 0;
+        for (const [key, counts] of Object.entries(participants)) {
+            console.log(`  ${key}: Red=${counts.red}, Blue=${counts.blue}`);
+            totalRed += counts.red;
+            totalBlue += counts.blue;
+        }
+        console.log(`  TOTAL: Red=${totalRed}, Blue=${totalBlue}`);
+    }
+}
+
+/**
+ * Compare individual centroid calculation methods
+ * Call from console: compareCentroidMethods()
+ */
+function compareCentroidMethods() {
+    console.log('='.repeat(70));
+    console.log('CENTROID METHOD COMPARISON');
+    console.log('='.repeat(70));
+    
+    const targetFreqs = [500, 1000, 2000];
+    
+    for (const hz of targetFreqs) {
+        const hzKey = String(hz);
+        const data = frequencyAverages[hzKey];
+        
+        if (!data || !data.redShapes || data.redShapes.length === 0) {
+            console.log(`\n${hz} Hz: No red shapes`);
+            continue;
+        }
+        
+        console.log(`\n${hz} Hz - First Red Shape Analysis:`);
+        const shape = data.redShapes[0];
+        
+        // Method 1: Simple average (no resampling)
+        let simpleX = 0, simpleY = 0;
+        for (const p of shape) {
+            simpleX += p.x;
+            simpleY += p.y;
+        }
+        simpleX /= shape.length;
+        simpleY /= shape.length;
+        console.log(`  Simple average: (${simpleX.toFixed(4)}, ${simpleY.toFixed(4)})`);
+        
+        // Method 2: Resampled centroid (our method)
+        const resampled = calculateCentroid(shape);
+        console.log(`  Resampled centroid: (${resampled.x.toFixed(4)}, ${resampled.y.toFixed(4)})`);
+        
+        // Difference
+        const diff = Math.sqrt((resampled.x - simpleX) ** 2 + (resampled.y - simpleY) ** 2);
+        console.log(`  Difference: ${diff.toFixed(4)} units`);
+    }
+}
+
 /**
  * Normalize contour to start at highest Y point and go counterclockwise
  * 
@@ -2092,17 +2631,16 @@ function normalizeContour(shape) {
 }
 
 /**
- * Average shapes using area-weighted polar/radial coordinate averaging
+ * Average shapes using equal-weight polar/radial coordinate averaging
  * 
  * Process:
  * 1. Calculate centroid of each shape (uniform path-resampled mean)
- * 2. Compute area of each shape via shoelace formula
- * 3. Convert each shape to polar coordinates (angle -> distance from centroid)
- * 4. Sample radial distance at uniform angles (0 to 2*PI in radialResolution steps)
- * 5. Compute the WEIGHTED average of radial distances at each angle, where each
- *    shape's weight is proportional to its area (larger shapes contribute more)
- * 6. Convert back to Cartesian coordinates at the unweighted average centroid
- * 7. Normalize output to start at highest Y (with highest X tiebreaker), counterclockwise
+ * 2. Convert each shape to polar coordinates (angle -> distance from centroid)
+ * 3. Sample radial distance at uniform angles (0 to 2*PI in radialResolution steps)
+ * 4. Compute the simple arithmetic mean of radial distances at each angle
+ *    (every shape contributes equally regardless of size)
+ * 5. Convert back to Cartesian coordinates at the unweighted average centroid
+ * 6. Normalize output to start at highest Y (with highest X tiebreaker), counterclockwise
  * 
  * The centroid of the average shape is a simple geometric average (unweighted)
  * of individual shape centroids.
@@ -2147,22 +2685,10 @@ function simpleAverageShapes(shapes) {
     avgCentroidX /= validIndices.length;
     avgCentroidY /= validIndices.length;
     
-    // Calculate area of each valid shape for area-weighted contour averaging.
-    // Larger shapes exert proportionally more influence on the average contour.
-    const areas = validIndices.map(idx => calculateAreaShoelace(validShapes[idx]));
-    const totalArea = areas.reduce((s, a) => s + a, 0);
+    // Equal-weight averaging: every shape contributes equally regardless of size.
+    const equalWeight = 1 / validIndices.length;
     
-    // Normalize to weights summing to 1. Fall back to equal weights if all
-    // shapes have zero area (degenerate case).
-    let weights;
-    if (totalArea > 1e-12) {
-        weights = areas.map(a => a / totalArea);
-    } else {
-        const eq = 1 / areas.length;
-        weights = areas.map(() => eq);
-    }
-    
-    console.log(`[Radial Average] Area weights: ${weights.map(w => w.toFixed(4)).join(', ')}`);
+    console.log(`[Radial Average] Equal weights: ${validIndices.length} shapes, weight = ${equalWeight.toFixed(4)} each`);
     
     // Step 2 & 3: Convert each shape to radial samples (distance at each angle)
     const numAngles = radialResolution;
@@ -2205,15 +2731,14 @@ function simpleAverageShapes(shapes) {
         return distances;
     });
     
-    // Step 4: Area-weighted average of radial distances at each angle.
-    // Each shape's radial distance is multiplied by its normalized area weight.
+    // Step 4: Simple (equal-weight) average of radial distances at each angle.
     const avgDistances = new Array(numAngles).fill(0);
     for (let angleDeg = 0; angleDeg < numAngles; angleDeg++) {
-        let weightedSum = 0;
+        let sum = 0;
         for (let s = 0; s < radialSamples.length; s++) {
-            weightedSum += radialSamples[s][angleDeg] * weights[s];
+            sum += radialSamples[s][angleDeg];
         }
-        avgDistances[angleDeg] = weightedSum;
+        avgDistances[angleDeg] = sum * equalWeight;
     }
     
     // Step 5: Convert back to Cartesian coordinates
@@ -2250,12 +2775,12 @@ function simpleAverageShapes(shapes) {
             for (let i = avgShape.length - 1; i > 0; i--) {
                 fixed.push(avgShape[i]);
             }
-            console.log(`[Radial Average] ${validIndices.length} shapes averaged (area-weighted), avg centroid: (${avgCentroidX.toFixed(2)}, ${avgCentroidY.toFixed(2)})`);
+            console.log(`[Radial Average] ${validIndices.length} shapes averaged (equal-weight), avg centroid: (${avgCentroidX.toFixed(2)}, ${avgCentroidY.toFixed(2)})`);
             return fixed;
         }
     }
     
-    console.log(`[Radial Average] ${validIndices.length} shapes averaged (area-weighted), avg centroid: (${avgCentroidX.toFixed(2)}, ${avgCentroidY.toFixed(2)})`);
+    console.log(`[Radial Average] ${validIndices.length} shapes averaged (equal-weight), avg centroid: (${avgCentroidX.toFixed(2)}, ${avgCentroidY.toFixed(2)})`);
     
     return avgShape;
 }
@@ -2357,7 +2882,7 @@ function generateFrequencyAverages() {
             if (avgShape) {
                 frequencyAverages[hzKey].redAvg = avgShape;
                 frequencyAverages[hzKey].redCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hzKey].redArea = calculateAreaShoelace(avgShape);
+                frequencyAverages[hzKey].redArea = calculatePixelBasedArea(avgShape, brushSize);
             }
         }
         if (frequencyAverages[hzKey].blueShapes.length > 0) {
@@ -2365,7 +2890,7 @@ function generateFrequencyAverages() {
             if (avgShape) {
                 frequencyAverages[hzKey].blueAvg = avgShape;
                 frequencyAverages[hzKey].blueCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hzKey].blueArea = calculateAreaShoelace(avgShape);
+                frequencyAverages[hzKey].blueArea = calculatePixelBasedArea(avgShape, brushSize);
             }
         }
     }
@@ -2383,6 +2908,7 @@ function generateFrequencyAverages() {
     
     // Update the frequency composites gallery
     updateFreqCompositesGallery();
+    updateCircleApproxAnalysis();
 }
 
 /**
@@ -2407,9 +2933,9 @@ function updateFreqCompositesGallery() {
         
         hasData = true;
         
-        // Calculate area and centroid on the AVERAGE shapes
-        const redAvgArea = data.redAvg ? calculateAreaShoelace(data.redAvg) : 0;
-        const blueAvgArea = data.blueAvg ? calculateAreaShoelace(data.blueAvg) : 0;
+        // Calculate area and centroid on the AVERAGE shapes (pixel-based area matching original drawing app)
+        const redAvgArea = data.redAvg ? calculatePixelBasedArea(data.redAvg, brushSize) : 0;
+        const blueAvgArea = data.blueAvg ? calculatePixelBasedArea(data.blueAvg, brushSize) : 0;
         const redCentroid = data.redAvg ? calculateCentroid(data.redAvg) : null;
         const blueCentroid = data.blueAvg ? calculateCentroid(data.blueAvg) : null;
         
@@ -2661,7 +3187,7 @@ function updateFreqCompositesGallery() {
     // Add interpretation note
     html += `<div class="mt-3 text-xs text-gray-500 space-y-1">
         <p><span class="font-semibold">Mean of Centroids:</span> Arithmetic mean of each individual shape's centroid position, computed separately for red and blue. The shift is the Euclidean distance between these two mean positions.</p>
-        <p><span class="font-semibold">Centroid of Avg Contour:</span> Geometric centroid of the area-weighted average contour shape. The shift is the Euclidean distance between the red and blue average contour centroids.</p>
+        <p><span class="font-semibold">Centroid of Avg Contour:</span> Geometric centroid of the equal-weight average contour shape. The shift is the Euclidean distance between the red and blue average contour centroids.</p>
         <p><span class="font-semibold">Discrepancy:</span> Difference between the two shift values. Large positive values indicate the averaging procedure amplifies centroid separation due to correlated shape asymmetries in the averaged contour.</p>
         <p><span class="font-semibold">SD of Individual Shifts:</span> Standard deviation of each blue shape's distance from the mean red centroid. High values indicate large inter-participant variability in perceived lateralization.</p>
     </div>`;
@@ -2679,8 +3205,183 @@ function updateFreqCompositesGallery() {
 }
 
 /**
- * Draw a shape on the composite canvas
+ * Circle Approximation & Shift Analysis
+ * 
+ * For each frequency, uses the pixel-based area (matching original drawing app)
+ * and centroid of each average contour to derive an equivalent perfect circle
+ * (r = sqrt(area / pi), centered at the contour centroid). Computes the
+ * Euclidean shift between red and blue circle centers.
  */
+function updateCircleApproxAnalysis() {
+    const panel = document.getElementById('circle-approx-analysis');
+    const tableDiv = document.getElementById('circle-approx-table');
+    
+    const sortedFreqs = Object.keys(frequencyAverages)
+        .map(Number)
+        .sort((a, b) => a - b)
+        .map(String);
+    
+    if (sortedFreqs.length === 0) {
+        panel.classList.add('hidden');
+        return;
+    }
+    
+    panel.classList.remove('hidden');
+    
+    // Manuscript comparison data
+    const manuscriptData = {
+        '500': { shift: 0.5287, r: 0.4209 },
+        '1000': { shift: 0.5032, r: 0.3775 },
+        '2000': { shift: 0.1688, r: 0.3543 }
+    };
+    
+    const rows = [];
+    
+    for (const hzKey of sortedFreqs) {
+        const data = frequencyAverages[hzKey];
+        
+        // Pixel-based calculations (matching original drawing app)
+        let redRadius = null, blueRadius = null;
+        if (data.redArea > 0) {
+            redRadius = Math.sqrt(data.redArea / Math.PI);
+        }
+        if (data.blueArea > 0) {
+            blueRadius = Math.sqrt(data.blueArea / Math.PI);
+        }
+        
+        const redCenter = data.redCentroid;
+        const blueCenter = data.blueCentroid;
+        
+        // Shift between circle centers
+        let shift = null;
+        let shiftX = null, shiftY = null;
+        if (redCenter && blueCenter) {
+            shiftX = blueCenter.x - redCenter.x;
+            shiftY = blueCenter.y - redCenter.y;
+            shift = Math.sqrt(shiftX * shiftX + shiftY * shiftY);
+        }
+        
+        // Manuscript comparison
+        const ms = manuscriptData[hzKey];
+        let shiftRatio = null, radiusRatio = null;
+        if (ms && shift !== null) {
+            shiftRatio = shift / ms.shift;
+        }
+        if (ms && redRadius !== null) {
+            radiusRatio = redRadius / ms.r;
+        }
+        
+        rows.push({
+            hz: parseFloat(hzKey),
+            hzKey,
+            redArea: data.redArea || null,
+            blueArea: data.blueArea || null,
+            redRadius,
+            blueRadius,
+            redCenter,
+            blueCenter,
+            shiftX,
+            shiftY,
+            shift,
+            nRed: data.redShapes ? data.redShapes.length : 0,
+            nBlue: data.blueShapes ? data.blueShapes.length : 0,
+            manuscriptShift: ms ? ms.shift : null,
+            manuscriptR: ms ? ms.r : null,
+            shiftRatio,
+            radiusRatio
+        });
+    }
+    
+    // Render main data table
+    let html = `
+    <p class="text-sm font-semibold text-emerald-700 mb-2">Pixel-Based Area (matching original drawing app methodology):</p>
+    <table class="w-full text-xs border-collapse mb-4">
+        <thead>
+            <tr class="bg-emerald-100 text-left">
+                <th class="p-2 font-semibold border-b border-emerald-300">Freq</th>
+                <th class="p-2 font-semibold border-b border-emerald-300">N (R/B)</th>
+                <th class="p-2 font-semibold border-b border-emerald-300">Red Area</th>
+                <th class="p-2 font-semibold border-b border-emerald-300">Red r</th>
+                <th class="p-2 font-semibold border-b border-emerald-300">Red Center</th>
+                <th class="p-2 font-semibold border-b border-emerald-300">Blue Area</th>
+                <th class="p-2 font-semibold border-b border-emerald-300">Blue r</th>
+                <th class="p-2 font-semibold border-b border-emerald-300">Blue Center</th>
+                <th class="p-2 font-semibold border-b border-emerald-300">Shift</th>
+            </tr>
+        </thead><tbody>`;
+    
+    for (const r of rows) {
+        const fmtV = v => v !== null ? v.toFixed(4) : '-';
+        const fmtC = c => c ? `(${c.x.toFixed(3)}, ${c.y.toFixed(3)})` : '-';
+        html += `<tr class="border-b border-gray-200 hover:bg-emerald-50">
+            <td class="p-2 font-semibold">${r.hzKey} Hz</td>
+            <td class="p-2 font-mono">${r.nRed} / ${r.nBlue}</td>
+            <td class="p-2 font-mono text-red-600">${fmtV(r.redArea)}</td>
+            <td class="p-2 font-mono text-red-600">${fmtV(r.redRadius)}</td>
+            <td class="p-2 font-mono text-red-600">${fmtC(r.redCenter)}</td>
+            <td class="p-2 font-mono text-blue-600">${fmtV(r.blueArea)}</td>
+            <td class="p-2 font-mono text-blue-600">${fmtV(r.blueRadius)}</td>
+            <td class="p-2 font-mono text-blue-600">${fmtC(r.blueCenter)}</td>
+            <td class="p-2 font-mono font-semibold">${fmtV(r.shift)}</td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+    
+    // Comparison to manuscript values
+    html += `
+    <p class="text-sm font-semibold text-amber-700 mb-2">Comparison to Manuscript Values (500, 1000, 2000 Hz only):</p>
+    <table class="w-full text-xs border-collapse mb-4">
+        <thead>
+            <tr class="bg-amber-100 text-left">
+                <th class="p-2 font-semibold border-b border-amber-300">Freq</th>
+                <th class="p-2 font-semibold border-b border-amber-300">Manuscript Shift</th>
+                <th class="p-2 font-semibold border-b border-amber-300">Tracing Shift</th>
+                <th class="p-2 font-semibold border-b border-amber-300">Shift Ratio</th>
+                <th class="p-2 font-semibold border-b border-amber-300">Manuscript r</th>
+                <th class="p-2 font-semibold border-b border-amber-300">Tracing r</th>
+                <th class="p-2 font-semibold border-b border-amber-300">Radius Ratio</th>
+            </tr>
+        </thead><tbody>`;
+    
+    for (const r of rows) {
+        if (!r.manuscriptShift) continue; // Only show 500, 1000, 2000 Hz
+        const fmtV = v => v !== null ? v.toFixed(4) : '-';
+        const ratioClass = r.shiftRatio ? (Math.abs(r.shiftRatio - 1) < 0.1 ? 'text-green-600' : 'text-red-600') : '';
+        html += `<tr class="border-b border-gray-200 hover:bg-amber-50">
+            <td class="p-2 font-semibold">${r.hzKey} Hz</td>
+            <td class="p-2 font-mono">${fmtV(r.manuscriptShift)}</td>
+            <td class="p-2 font-mono">${fmtV(r.shift)}</td>
+            <td class="p-2 font-mono font-bold ${ratioClass}">${fmtV(r.shiftRatio)}</td>
+            <td class="p-2 font-mono">${fmtV(r.manuscriptR)}</td>
+            <td class="p-2 font-mono">${fmtV(r.redRadius)}</td>
+            <td class="p-2 font-mono font-bold ${ratioClass}">${fmtV(r.radiusRatio)}</td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+    
+    html += `<div class="mt-3 text-xs text-gray-500 space-y-1">
+        <p><span class="font-semibold">Area:</span> Pixel-based area matching the original drawing app. Calculated by scanning a grid and counting painted cells, including brush width effects and outline subtraction for closed shapes.</p>
+        <p><span class="font-semibold">Radius (r):</span> Equivalent circle radius: r = sqrt(area / pi).</p>
+        <p><span class="font-semibold">Center:</span> Centroid of the average contour calculated via uniform path resampling.</p>
+        <p><span class="font-semibold">Shift:</span> Euclidean distance between red and blue centroids.</p>
+        <p><span class="font-semibold">Ratio:</span> Tracing app value divided by manuscript value. Values close to 1.0 (green) indicate good agreement; large deviations (red) indicate discrepancy.</p>
+        <p class="mt-2 font-semibold">Diagnostic: Run <code>runDataDiagnostics()</code> in browser console for detailed analysis. Run <code>listShapesByParticipant()</code> to check for duplicate shapes.</p>
+    </div>`;
+    
+    tableDiv.innerHTML = html;
+    
+    // Console log
+    console.log('[Circle Approx] Freq | Red r | Blue r | Shift | Manuscript Shift | Ratio');
+    for (const r of rows) {
+        const rr = r.redRadius !== null ? r.redRadius.toFixed(4) : 'N/A';
+        const br = r.blueRadius !== null ? r.blueRadius.toFixed(4) : 'N/A';
+        const sh = r.shift !== null ? r.shift.toFixed(4) : 'N/A';
+        const ms = r.manuscriptShift !== null ? r.manuscriptShift.toFixed(4) : 'N/A';
+        const ratio = r.shiftRatio !== null ? r.shiftRatio.toFixed(2) : 'N/A';
+        console.log(`[Circle Approx] ${r.hzKey} Hz | r=${rr} | r=${br} | shift=${sh} | ms_shift=${ms} | ratio=${ratio}`);
+    }
+}
+
 function drawCompositeShape(cx, shape, color, scale, opacity, lineWidth) {
     if (!shape || shape.length < 2) return;
     
@@ -2778,14 +3479,12 @@ function drawCompositeGrid(cx, size) {
 }
 
 /**
- * Export frequency averages as PNG images.
+ * Export frequency averages as PNG images packaged into a ZIP file.
  * Creates one image per frequency with:
- * - Original participant PNG drawings overlaid at configurable opacity (background)
- *   NOTE: Only the original uploaded PNG images appear here, NOT the manually
- *   traced contour lines. If images were not uploaded (e.g. cloud-only workflow),
- *   the background will be blank and a warning is logged.
- * - Average shapes at full opacity (foreground)
- * - Grid on top
+ * - Individual traced contours resampled to 1000 uniform points at reduced
+ *   opacity (background), providing consistent stroke rendering
+ * - Average shapes at full opacity with centroid crosshair markers (foreground)
+ * - Grid, reference circle, and area/centroid/shift statistics overlaid
  */
 function exportFrequencyPNGs() {
     const statusEl = document.getElementById('freq-avg-status');
@@ -2843,7 +3542,7 @@ function exportFrequencyPNGs() {
         const traceOpacity = 0.45;
         const traceLineWidth = 1 * scaleFactor;
         const avgLineWidth = 3 * scaleFactor;
-        const resampleN = 500;
+        const resampleN = 1000;
         
         if (data.redShapes && data.redShapes.length > 0) {
             for (const shape of data.redShapes) {
@@ -3136,7 +3835,7 @@ function expCSV() {
 }
 
 function expJSON() {
-    const ex = { exportDate: new Date().toISOString(), version: '5.1', settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize, radialResolution }, allData };
+    const ex = { exportDate: new Date().toISOString(), version: '5.2', settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize, radialResolution }, allData };
     saveAs(new Blob([JSON.stringify(ex, null, 2)], { type: 'application/json' }), `contour_${new Date().toISOString().slice(0, 10)}.json`);
     status('JSON exported');
 }
@@ -3412,6 +4111,144 @@ async function saveToCloud() {
         );
         setCloudStatus('❌ Save failed: ' + e.message, true);
         status('Cloud save failed');
+    }
+}
+
+/**
+ * Populate the Final frequency replacement dropdown with available frequencies
+ */
+function populateFinalFrequencyDropdown() {
+    const select = document.getElementById('final-freq-select');
+    select.innerHTML = '<option value="">-- Select frequency to replace --</option>';
+    
+    for (const freq of FREQUENCIES) {
+        const option = document.createElement('option');
+        option.value = `${freq.hz}Hz_${freq.db}dB`;
+        option.textContent = `${freq.hz} Hz (${freq.db} dB)`;
+        select.appendChild(option);
+    }
+}
+
+/**
+ * Replace ALL data for a specific frequency in Final tracer
+ * This deletes existing data for that frequency and replaces it with current local data
+ */
+async function replaceFinalFrequency() {
+    const url = getCloudUrl();
+    const freqKey = document.getElementById('final-freq-select').value;
+    
+    if (!url) {
+        setCloudStatus('❌ Enter Apps Script URL', true);
+        return;
+    }
+    if (!freqKey) {
+        setCloudStatus('❌ Select a frequency to replace', true);
+        return;
+    }
+    
+    // Parse frequency from key
+    const freqMatch = freqKey.match(/(\d+(?:\.\d+)?)Hz_(\d+)dB/);
+    if (!freqMatch) {
+        setCloudStatus('❌ Invalid frequency format', true);
+        return;
+    }
+    const hz = parseFloat(freqMatch[1]);
+    
+    // Collect all local data for this frequency
+    const freqData = {};
+    let totalShapes = 0;
+    
+    for (const participant of Object.keys(allData)) {
+        for (const trial of Object.keys(allData[participant])) {
+            for (const fk of Object.keys(allData[participant][trial])) {
+                if (fk === freqKey) {
+                    const d = allData[participant][trial][fk];
+                    if (!freqData[participant]) freqData[participant] = {};
+                    if (!freqData[participant][trial]) freqData[participant][trial] = {};
+                    freqData[participant][trial][fk] = {
+                        red: d.red || [],
+                        blue: d.blue || [],
+                        redAvg: d.redAvg || null,
+                        blueAvg: d.blueAvg || null
+                    };
+                    totalShapes += (d.red ? d.red.length : 0) + (d.blue ? d.blue.length : 0);
+                }
+            }
+        }
+    }
+    
+    if (totalShapes === 0) {
+        setCloudStatus(`❌ No local data for ${hz} Hz to replace with`, true);
+        return;
+    }
+    
+    // Confirm with user
+    const confirmMsg = `⚠️ WARNING: This will DELETE all existing ${hz} Hz data in Final and replace it with your current local data (${totalShapes} shapes).\n\nThis action cannot be undone.\n\nAre you sure?`;
+    if (!confirm(confirmMsg)) {
+        setCloudStatus('Replacement cancelled');
+        return;
+    }
+    
+    showCloudProgress('Replacing Frequency Data...', `Replacing ${hz} Hz data in Final`);
+    
+    const replaceData = {
+        action: 'replaceFinalFrequency',
+        tracerName: 'Final',
+        frequencyKey: freqKey,
+        frequencyHz: hz,
+        savedAt: new Date().toISOString(),
+        allData: freqData,
+        settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize, radialResolution }
+    };
+    
+    console.log('=== REPLACE FINAL FREQUENCY DEBUG ===');
+    console.log('Frequency:', freqKey);
+    console.log('Total shapes:', totalShapes);
+    console.log('Participants:', Object.keys(freqData));
+    
+    try {
+        updateCloudProgress(30, 'Sending replacement data...');
+        
+        await fetch(url, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify(replaceData)
+        });
+        
+        updateCloudProgress(70, 'Data sent, waiting for confirmation...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        updateCloudProgress(100);
+        showCloudSuccess(
+            'Frequency Replaced!',
+            `${hz} Hz data in Final has been replaced.`,
+            `Shapes uploaded: ${totalShapes}\nParticipants: ${Object.keys(freqData).length}`
+        );
+        setCloudStatus(`✅ Replaced ${hz} Hz in Final (${totalShapes} shapes)`);
+        
+        // Update the Final snapshot to include this new data
+        if (_finalSnapshot) {
+            for (const p of Object.keys(freqData)) {
+                if (!_finalSnapshot[p]) _finalSnapshot[p] = {};
+                for (const t of Object.keys(freqData[p])) {
+                    if (!_finalSnapshot[p][t]) _finalSnapshot[p][t] = {};
+                    for (const f of Object.keys(freqData[p][t])) {
+                        _finalSnapshot[p][t][f] = JSON.parse(JSON.stringify(freqData[p][t][f]));
+                    }
+                }
+            }
+            console.log('Updated _finalSnapshot with replaced frequency data');
+        }
+        
+    } catch (e) {
+        console.error('Replace error:', e);
+        showCloudError(
+            'Replace Failed',
+            `Could not replace ${hz} Hz data in Final.`,
+            e.message || 'Check your internet connection and Apps Script URL.'
+        );
+        setCloudStatus('❌ Replace failed: ' + e.message, true);
     }
 }
 
@@ -4197,6 +5034,10 @@ function init() {
     document.getElementById('cloud-add-other').onclick = addSelectedTracer;
     document.getElementById('auto-cloud-toggle').onclick = toggleAutoCloudSave;
     document.getElementById('cloud-progress-close').onclick = hideCloudProgress;
+    
+    // Final frequency replacement
+    document.getElementById('final-replace-btn').onclick = replaceFinalFrequency;
+    populateFinalFrequencyDropdown();
     
     // Load saved settings
     loadCloudSettings();
