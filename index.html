@@ -769,15 +769,17 @@ function redraw() {
     // Layer 2: Reference circle
     drawRefCircle();
     
-    // Layer 3: Traced shapes with configurable opacity (in background)
+    // Layer 3: Traced shapes - dark and opaque (full visibility on canvas)
     const d = curData();
     if (d) {
-        // Traced shapes at configurable opacity
-        d.red.forEach(s => drawShape(s, COLORS.red, SHAPE_OPACITY));
-        d.blue.forEach(s => drawShape(s, COLORS.blue, SHAPE_OPACITY));
+        // Use darker colors for traced shapes on canvas (full opacity)
+        const darkRed = '#b91c1c';   // Darker red (red-700)
+        const darkBlue = '#1d4ed8';  // Darker blue (blue-700)
+        d.red.forEach(s => drawShape(s, darkRed, 1.0));
+        d.blue.forEach(s => drawShape(s, darkBlue, 1.0));
     }
     
-    // Layer 4: Average shapes at full opacity on top
+    // Layer 4: Average shapes at full opacity on top (even darker/thicker)
     if (d) {
         if (d.redAvg) drawAvgShape(d.redAvg, COLORS.red);
         if (d.blueAvg) drawAvgShape(d.blueAvg, COLORS.blue);
