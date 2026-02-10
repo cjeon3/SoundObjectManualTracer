@@ -463,6 +463,12 @@ const COLORS = { red: '#ef4444', blue: '#3b82f6' };
 let canvas, ctx;
 let showGrid = true, drawingOn = true, isDrawing = false;
 let selColor = 'red', brushSize = 5, resampleRate = 1000;
+
+// Fixed brush size used for all area calculations. Decoupled from the visual
+// brushSize slider so that area values remain stable regardless of the current
+// UI setting. The default of 5 matches the original drawing app methodology
+// (brush radius = 5 / SCALE_FACTOR / 2 = 0.05 units).
+const AREA_BRUSH_SIZE = 5;
 let IMAGE_OPACITY = 0.5;
 let SHAPE_OPACITY = 0.3; // Opacity for background traced shapes (0-1)
 let radialResolution = 720; // Number of angles for radial averaging (higher = more precise)
@@ -1688,12 +1694,84 @@ function handleJson(file) {
     r.onload = e => {
         try {
             const d = JSON.parse(e.target.result);
-            if (d.allData) allData = d.allData;
+            if (!d.allData || typeof d.allData !== 'object') {
+                status('Error: JSON file has no allData object');
+                return;
+            }
+            
+            // DO NOT clear images or trialMapping here. Those come from
+            // ZIP uploads and must persist so traces overlay on images.
+            // Only reset state that becomes stale when shape data changes.
+            _finalSnapshot = null;
+            undoStack = [];
+            redoStack = [];
+            document.getElementById('undo-btn').disabled = true;
+            document.getElementById('redo-btn').disabled = true;
+            frequencyAverages = {};
+            
+            // Validate, normalize, and MERGE the imported data into the
+            // existing allData. This means:
+            //  - New participant/trial/freq entries are created
+            //  - Existing entries get shapes appended (stacking)
+            //  - Average shapes from the import overwrite existing ones
+            //    (the latest import is the most recent computation)
+            let participants = 0, importedShapes = 0, mergedInto = 0;
+            
+            for (const p of Object.keys(d.allData)) {
+                participants++;
+                if (typeof d.allData[p] !== 'object') continue;
+                for (const t of Object.keys(d.allData[p])) {
+                    if (typeof d.allData[p][t] !== 'object') continue;
+                    for (const fk of Object.keys(d.allData[p][t])) {
+                        const src = d.allData[p][t][fk];
+                        if (typeof src !== 'object' || src === null) continue;
+                        
+                        // Normalize source arrays
+                        const srcRed = Array.isArray(src.red)
+                            ? src.red.filter(s => Array.isArray(s) && s.length >= 2)
+                            : [];
+                        const srcBlue = Array.isArray(src.blue)
+                            ? src.blue.filter(s => Array.isArray(s) && s.length >= 2)
+                            : [];
+                        const srcRedAvg = Array.isArray(src.redAvg) ? src.redAvg : null;
+                        const srcBlueAvg = Array.isArray(src.blueAvg) ? src.blueAvg : null;
+                        
+                        // Skip completely empty entries
+                        if (srcRed.length === 0 && srcBlue.length === 0 && !srcRedAvg && !srcBlueAvg) continue;
+                        
+                        // Ensure target entry exists
+                        const tgt = ensureData(p, t, fk);
+                        
+                        // Check if we are merging into an entry that already
+                        // has shapes (i.e. from a prior import or tracing session)
+                        const hadData = tgt.red.length > 0 || tgt.blue.length > 0;
+                        
+                        // Append traced shapes (stacking)
+                        tgt.red.push(...srcRed);
+                        tgt.blue.push(...srcBlue);
+                        
+                        // Averages: import overwrites (latest computation wins)
+                        if (srcRedAvg) tgt.redAvg = srcRedAvg;
+                        if (srcBlueAvg) tgt.blueAvg = srcBlueAvg;
+                        
+                        importedShapes += srcRed.length + srcBlue.length;
+                        if (hadData) mergedInto++;
+                    }
+                }
+            }
+            
             applySettings(d.settings);
             rebuildTabsFromData();
-            status('JSON imported');
-        } catch (e) {
-            status('Error: ' + e.message);
+            
+            // Reset the file input so the same file can be re-imported
+            document.getElementById('json-import').value = '';
+            
+            const mergeNote = mergedInto > 0 ? ` (merged into ${mergedInto} existing entries)` : '';
+            console.log(`[JSON Import] ${participants} participants, ${importedShapes} shapes${mergeNote}, version: ${d.version || 'unknown'}`);
+            status(`JSON imported: ${participants} participants, ${importedShapes} shapes${mergeNote}`);
+        } catch (err) {
+            status('Error importing JSON: ' + err.message);
+            console.error('[JSON Import] Parse error:', err);
         }
     };
     r.readAsText(file);
@@ -1967,7 +2045,7 @@ function doBulk() {
             if (avgShape) {
                 frequencyAverages[hz].redAvg = avgShape;
                 frequencyAverages[hz].redCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hz].redArea = calculatePixelBasedArea(avgShape, brushSize);
+                frequencyAverages[hz].redArea = calculatePixelBasedArea(avgShape, AREA_BRUSH_SIZE);
             }
         }
         if (frequencyAverages[hz].blueShapes.length > 0) {
@@ -1975,7 +2053,7 @@ function doBulk() {
             if (avgShape) {
                 frequencyAverages[hz].blueAvg = avgShape;
                 frequencyAverages[hz].blueCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hz].blueArea = calculatePixelBasedArea(avgShape, brushSize);
+                frequencyAverages[hz].blueArea = calculatePixelBasedArea(avgShape, AREA_BRUSH_SIZE);
             }
         }
     }
@@ -2463,7 +2541,7 @@ function runDataDiagnostics() {
         
         if (data.redAvg) {
             const avgRedCentroid = data.redCentroid;
-            const pixelArea = calculatePixelBasedArea(data.redAvg, brushSize);
+            const pixelArea = calculatePixelBasedArea(data.redAvg, AREA_BRUSH_SIZE);
             const radius = Math.sqrt(pixelArea / Math.PI);
             
             console.log(`  Red Avg Contour:`);
@@ -2474,7 +2552,7 @@ function runDataDiagnostics() {
         
         if (data.blueAvg) {
             const avgBlueCentroid = data.blueCentroid;
-            const pixelArea = calculatePixelBasedArea(data.blueAvg, brushSize);
+            const pixelArea = calculatePixelBasedArea(data.blueAvg, AREA_BRUSH_SIZE);
             const radius = Math.sqrt(pixelArea / Math.PI);
             
             console.log(`  Blue Avg Contour:`);
@@ -2515,7 +2593,7 @@ function runDataDiagnostics() {
             }
             
             if (data.redAvg) {
-                const avgArea = calculatePixelBasedArea(data.redAvg, brushSize);
+                const avgArea = calculatePixelBasedArea(data.redAvg, AREA_BRUSH_SIZE);
                 const avgRadius = Math.sqrt(avgArea / Math.PI);
                 const radiusRatio = avgRadius / manuscriptData[hz].r;
                 console.log(`  Tracing App Red r: ${avgRadius.toFixed(4)}`);
@@ -2934,7 +3012,7 @@ function generateFrequencyAverages() {
             if (avgShape) {
                 frequencyAverages[hzKey].redAvg = avgShape;
                 frequencyAverages[hzKey].redCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hzKey].redArea = calculatePixelBasedArea(avgShape, brushSize);
+                frequencyAverages[hzKey].redArea = calculatePixelBasedArea(avgShape, AREA_BRUSH_SIZE);
             }
         }
         if (frequencyAverages[hzKey].blueShapes.length > 0) {
@@ -2942,7 +3020,7 @@ function generateFrequencyAverages() {
             if (avgShape) {
                 frequencyAverages[hzKey].blueAvg = avgShape;
                 frequencyAverages[hzKey].blueCentroid = calculateCentroid(avgShape);
-                frequencyAverages[hzKey].blueArea = calculatePixelBasedArea(avgShape, brushSize);
+                frequencyAverages[hzKey].blueArea = calculatePixelBasedArea(avgShape, AREA_BRUSH_SIZE);
             }
         }
     }
@@ -2991,13 +3069,13 @@ function updateFreqCompositesGallery() {
             data.redCentroid = calculateCentroid(data.redAvg);
         }
         if (data.redAvg && !data.redArea) {
-            data.redArea = calculatePixelBasedArea(data.redAvg, brushSize);
+            data.redArea = calculatePixelBasedArea(data.redAvg, AREA_BRUSH_SIZE);
         }
         if (data.blueAvg && !data.blueCentroid) {
             data.blueCentroid = calculateCentroid(data.blueAvg);
         }
         if (data.blueAvg && !data.blueArea) {
-            data.blueArea = calculatePixelBasedArea(data.blueAvg, brushSize);
+            data.blueArea = calculatePixelBasedArea(data.blueAvg, AREA_BRUSH_SIZE);
         }
         
         // Create card
@@ -4693,15 +4771,27 @@ function triggerAutoSave() {
 
 function rebuildTabsFromData() {
     const parts = new Map();
+    
+    // 1. Add all participants/trials from allData
     for (const p of Object.keys(allData)) {
-        parts.set(p, new Map());
+        if (!parts.has(p)) parts.set(p, new Map());
         for (const t of Object.keys(allData[p])) {
-            parts.get(p).set(t, new Set());
-            for (const fk of Object.keys(allData[p][t])) {
-                const hz = parseFloat(fk);
-                if (!isNaN(hz)) parts.get(p).get(t).add(hz);
-            }
+            if (!parts.get(p).has(t)) parts.get(p).set(t, new Set());
         }
+    }
+    
+    // 2. Add frequency-has-image info from the images dict.
+    //    Image keys are "Participant|Trial|freqKey". The Set stores Hz
+    //    values, which buildFreqTabs checks via freqs.has(f.hz) to decide
+    //    "has image" (bright) vs "has data only" (amber) tab styling.
+    for (const ik of Object.keys(images)) {
+        const parts3 = ik.split('|');
+        if (parts3.length !== 3) continue;
+        const [p, t, fk] = parts3;
+        const hz = parseFloat(fk);
+        if (!parts.has(p)) parts.set(p, new Map());
+        if (!parts.get(p).has(t)) parts.get(p).set(t, new Set());
+        if (!isNaN(hz)) parts.get(p).get(t).add(hz);
     }
     
     if (parts.size > 0) {
