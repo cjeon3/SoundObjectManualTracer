@@ -149,6 +149,16 @@
                 </div>
                 <!-- Divider -->
                 <div class="hidden sm:block w-px h-8 bg-gray-300"></div>
+                <!-- Eraser -->
+                <div class="flex items-center gap-2">
+                    <button id="eraser-btn" class="px-3 py-1.5 rounded-lg font-bold text-xs bg-gray-400 text-white shadow">Eraser</button>
+                    <div id="eraser-size-group" class="flex items-center gap-1 min-w-[110px] max-w-[180px]" style="display:none;">
+                        <span class="text-xs text-gray-600 whitespace-nowrap">Size: <span id="eraser-val" class="text-purple-600 font-bold">30</span></span>
+                        <input id="eraser-slider" type="range" min="10" max="80" value="30" class="flex-1">
+                    </div>
+                </div>
+                <!-- Divider -->
+                <div class="hidden sm:block w-px h-8 bg-gray-300"></div>
                 <!-- Action buttons -->
                 <div class="flex flex-wrap gap-1.5">
                     <button id="toggle-draw" class="px-3 py-1.5 rounded-lg font-bold text-xs bg-green-500 text-white shadow">✏️ ON</button>
@@ -374,6 +384,30 @@
         </div>
     </div>
     
+    <!-- JSON Import Progress Popup -->
+    <div id="json-progress-modal" class="modal">
+        <div class="modal-content" style="max-width: 480px;">
+            <div class="text-center">
+                <div class="text-5xl mb-4">📥</div>
+                <h2 id="json-progress-title" class="font-bold text-xl mb-2">Importing JSON...</h2>
+                <p id="json-progress-message" class="text-gray-600 mb-4">Reading file</p>
+                
+                <!-- Progress bar -->
+                <div class="w-full bg-gray-200 rounded-full h-3 mb-3">
+                    <div id="json-progress-bar" class="bg-gradient-to-r from-teal-500 to-emerald-500 h-3 rounded-full transition-all duration-150" style="width: 0%"></div>
+                </div>
+                
+                <p id="json-progress-details" class="text-sm text-gray-500 mb-2"></p>
+                
+                <!-- Live log of loaded entries -->
+                <div id="json-progress-log" class="text-left text-xs font-mono bg-gray-50 border rounded-lg p-3 max-h-48 overflow-y-auto text-gray-600 mb-4" style="display:none;"></div>
+                
+                <!-- Close button (hidden during progress) -->
+                <button id="json-progress-close" class="hidden mt-2 px-6 py-2 rounded-xl font-bold text-sm bg-gray-500 text-white shadow">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Cloud Save Progress Popup -->
     <div id="cloud-progress-modal" class="modal">
         <div class="modal-content" style="max-width: 400px;">
@@ -462,6 +496,7 @@ const COLORS = { red: '#ef4444', blue: '#3b82f6' };
 // ============================================
 let canvas, ctx;
 let showGrid = true, drawingOn = true, isDrawing = false;
+let eraserMode = false, eraserSize = 30; // eraserSize in canvas pixels
 let selColor = 'red', brushSize = 5, resampleRate = 1000;
 
 // Fixed brush size used for all area calculations. Decoupled from the visual
@@ -1279,6 +1314,20 @@ function startDraw(e) {
     if (isDrawing) return;
     isDrawing = true;
     activePointerId = e.pointerId;
+    e.preventDefault();
+    
+    if (eraserMode) {
+        // Save undo state once at stroke start
+        const d = curData();
+        if (d) {
+            undoStack.push({ key: dataKey(), data: JSON.parse(JSON.stringify(d)) });
+            redoStack = [];
+            _eraserDidRemove = false;
+        }
+        eraseAtPoint(getPoint(e));
+        return;
+    }
+    
     smoothBuffer = [];
     const p = getPoint(e);
     const sp = smoothPoint(p);
@@ -1290,7 +1339,79 @@ function startDraw(e) {
     ctx.lineJoin = 'round';
     // Record last drawn position for incremental rendering
     lastDrawnPt = sp;
-    e.preventDefault();
+}
+
+// Track whether eraser actually removed anything (to avoid empty undo entries)
+let _eraserDidRemove = false;
+
+/**
+ * Erase any shape that has a point within eraserSize pixels of the given
+ * canvas-space position. Removes from BOTH red and blue arrays.
+ */
+function eraseAtPoint(canvasPt) {
+    const d = curData();
+    if (!d) return;
+    
+    const radiusSq = eraserSize * eraserSize;
+    let removed = false;
+    
+    // Check red shapes (iterate backwards for safe splice)
+    for (let i = d.red.length - 1; i >= 0; i--) {
+        const shape = d.red[i];
+        if (!shape) continue;
+        for (const pt of shape) {
+            const cp = unitToCanvas(pt.x, pt.y);
+            const dx = cp.x - canvasPt.x;
+            const dy = cp.y - canvasPt.y;
+            if (dx * dx + dy * dy <= radiusSq) {
+                d.red.splice(i, 1);
+                removed = true;
+                break;
+            }
+        }
+    }
+    
+    // Check blue shapes
+    for (let i = d.blue.length - 1; i >= 0; i--) {
+        const shape = d.blue[i];
+        if (!shape) continue;
+        for (const pt of shape) {
+            const cp = unitToCanvas(pt.x, pt.y);
+            const dx = cp.x - canvasPt.x;
+            const dy = cp.y - canvasPt.y;
+            if (dx * dx + dy * dy <= radiusSq) {
+                d.blue.splice(i, 1);
+                removed = true;
+                break;
+            }
+        }
+    }
+    
+    if (removed) {
+        _eraserDidRemove = true;
+        redraw();
+        // Draw eraser cursor on top
+        drawEraserCursor(canvasPt);
+        updateTable();
+    } else {
+        // Still show cursor even if nothing was removed
+        drawEraserCursor(canvasPt);
+    }
+}
+
+/**
+ * Draw a circle showing the eraser radius at the given canvas position.
+ */
+function drawEraserCursor(canvasPt) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(128, 0, 128, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.arc(canvasPt.x, canvasPt.y, eraserSize, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
 }
 
 // Last point rendered on canvas, used for incremental segment drawing
@@ -1299,6 +1420,11 @@ let lastDrawnPt = null;
 function doDraw(e) {
     if (!isDrawing || e.pointerId !== activePointerId) return;
     e.preventDefault();
+    
+    if (eraserMode) {
+        eraseAtPoint(getPoint(e));
+        return;
+    }
 
     // Collect all points from this event.
     // getCoalescedEvents() returns intermediate positions the browser
@@ -1339,8 +1465,21 @@ function endDraw(e) {
     // Only end for the pointer that started the stroke
     if (e && e.pointerId !== undefined && e.pointerId !== activePointerId) return;
     isDrawing = false;
-    lastDrawnPt = null;
     activePointerId = null;
+    
+    if (eraserMode) {
+        // If eraser didn't actually remove anything, discard the undo entry
+        if (!_eraserDidRemove && undoStack.length > 0) {
+            undoStack.pop();
+        }
+        _eraserDidRemove = false;
+        redraw(); // Clear eraser cursor
+        document.getElementById('undo-btn').disabled = !undoStack.length;
+        document.getElementById('redo-btn').disabled = !redoStack.length;
+        return;
+    }
+    
+    lastDrawnPt = null;
     smoothBuffer = [];
     if (curPath.length > 5) {
         const d = curData();
@@ -1691,17 +1830,70 @@ function applySettings(settings) {
 
 function handleJson(file) {
     const r = new FileReader();
-    r.onload = e => {
+    r.onload = async (e) => {
+        // --- Progress modal helpers ---
+        const modal    = document.getElementById('json-progress-modal');
+        const bar      = document.getElementById('json-progress-bar');
+        const title    = document.getElementById('json-progress-title');
+        const message  = document.getElementById('json-progress-message');
+        const details  = document.getElementById('json-progress-details');
+        const logEl    = document.getElementById('json-progress-log');
+        const closeBtn = document.getElementById('json-progress-close');
+        
+        function showProgress() {
+            bar.style.width = '0%';
+            title.textContent = 'Importing JSON...';
+            message.textContent = `Reading ${file.name}`;
+            details.textContent = '';
+            logEl.style.display = 'none';
+            logEl.innerHTML = '';
+            closeBtn.classList.add('hidden');
+            modal.classList.add('active');
+        }
+        
+        function setProgress(pct, msg, detail) {
+            bar.style.width = pct + '%';
+            if (msg) message.textContent = msg;
+            if (detail !== undefined) details.textContent = detail;
+        }
+        
+        function addLogLine(text) {
+            logEl.style.display = 'block';
+            const line = document.createElement('div');
+            line.textContent = text;
+            logEl.appendChild(line);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        
+        function finishProgress(titleText, msgText) {
+            bar.style.width = '100%';
+            title.textContent = titleText;
+            message.textContent = msgText;
+            closeBtn.classList.remove('hidden');
+        }
+        
+        // Allow a UI repaint between batches
+        const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+        
+        showProgress();
+        await tick();
+        
         try {
+            // --- Phase 1: Parse JSON ---
+            setProgress(5, 'Parsing JSON data...', '');
+            await tick();
+            
             const d = JSON.parse(e.target.result);
             if (!d.allData || typeof d.allData !== 'object') {
+                finishProgress('Import Failed', 'JSON file has no allData object');
                 status('Error: JSON file has no allData object');
                 return;
             }
             
-            // DO NOT clear images or trialMapping here. Those come from
-            // ZIP uploads and must persist so traces overlay on images.
-            // Only reset state that becomes stale when shape data changes.
+            // --- Phase 2: Prepare ---
+            setProgress(10, 'Preparing import...', '');
+            await tick();
+            
             _finalSnapshot = null;
             undoStack = [];
             redoStack = [];
@@ -1709,24 +1901,29 @@ function handleJson(file) {
             document.getElementById('redo-btn').disabled = true;
             frequencyAverages = {};
             
-            // Validate, normalize, and MERGE the imported data into the
-            // existing allData. This means:
-            //  - New participant/trial/freq entries are created
-            //  - Existing entries get shapes appended (stacking)
-            //  - Average shapes from the import overwrite existing ones
-            //    (the latest import is the most recent computation)
-            let participants = 0, importedShapes = 0, mergedInto = 0;
+            // Count total work units for progress
+            const allParticipants = Object.keys(d.allData).filter(
+                p => typeof d.allData[p] === 'object'
+            );
+            const totalParticipants = allParticipants.length;
             
-            for (const p of Object.keys(d.allData)) {
-                participants++;
-                if (typeof d.allData[p] !== 'object') continue;
+            // --- Phase 3: Merge data with progress ---
+            let importedShapes = 0, mergedInto = 0, entriesProcessed = 0, skippedEmpty = 0;
+            
+            for (let pi = 0; pi < allParticipants.length; pi++) {
+                const p = allParticipants[pi];
+                const pct = 15 + Math.round((pi / totalParticipants) * 75);
+                setProgress(pct, `Processing ${p}...`, `Participant ${pi + 1} of ${totalParticipants}`);
+                
+                // Yield every participant so the bar visually advances
+                await tick();
+                
                 for (const t of Object.keys(d.allData[p])) {
                     if (typeof d.allData[p][t] !== 'object') continue;
                     for (const fk of Object.keys(d.allData[p][t])) {
                         const src = d.allData[p][t][fk];
                         if (typeof src !== 'object' || src === null) continue;
                         
-                        // Normalize source arrays
                         const srcRed = Array.isArray(src.red)
                             ? src.red.filter(s => Array.isArray(s) && s.length >= 2)
                             : [];
@@ -1736,40 +1933,56 @@ function handleJson(file) {
                         const srcRedAvg = Array.isArray(src.redAvg) ? src.redAvg : null;
                         const srcBlueAvg = Array.isArray(src.blueAvg) ? src.blueAvg : null;
                         
-                        // Skip completely empty entries
-                        if (srcRed.length === 0 && srcBlue.length === 0 && !srcRedAvg && !srcBlueAvg) continue;
+                        if (srcRed.length === 0 && srcBlue.length === 0 && !srcRedAvg && !srcBlueAvg) {
+                            skippedEmpty++;
+                            continue;
+                        }
                         
-                        // Ensure target entry exists
                         const tgt = ensureData(p, t, fk);
-                        
-                        // Check if we are merging into an entry that already
-                        // has shapes (i.e. from a prior import or tracing session)
                         const hadData = tgt.red.length > 0 || tgt.blue.length > 0;
                         
-                        // Append traced shapes (stacking)
                         tgt.red.push(...srcRed);
                         tgt.blue.push(...srcBlue);
-                        
-                        // Averages: import overwrites (latest computation wins)
                         if (srcRedAvg) tgt.redAvg = srcRedAvg;
                         if (srcBlueAvg) tgt.blueAvg = srcBlueAvg;
                         
-                        importedShapes += srcRed.length + srcBlue.length;
+                        const shapeCount = srcRed.length + srcBlue.length;
+                        importedShapes += shapeCount;
                         if (hadData) mergedInto++;
+                        entriesProcessed++;
+                        
+                        // Log line for each entry with shapes
+                        const hzLabel = fk.replace(/Hz.*/, ' Hz');
+                        addLogLine(`${p} / ${t} / ${hzLabel} : ${srcRed.length}R + ${srcBlue.length}B`);
                     }
                 }
             }
             
+            // --- Phase 4: Rebuild UI ---
+            setProgress(92, 'Rebuilding UI...', '');
+            await tick();
+            
             applySettings(d.settings);
             rebuildTabsFromData();
             
-            // Reset the file input so the same file can be re-imported
+            // Reset file input for re-import
             document.getElementById('json-import').value = '';
             
-            const mergeNote = mergedInto > 0 ? ` (merged into ${mergedInto} existing entries)` : '';
-            console.log(`[JSON Import] ${participants} participants, ${importedShapes} shapes${mergeNote}, version: ${d.version || 'unknown'}`);
-            status(`JSON imported: ${participants} participants, ${importedShapes} shapes${mergeNote}`);
+            // --- Phase 5: Done ---
+            const mergeNote = mergedInto > 0 ? ` (merged into ${mergedInto} existing)` : '';
+            const summary = `${totalParticipants} participants, ${importedShapes} shapes, ${entriesProcessed} entries${mergeNote}`;
+            
+            addLogLine('');
+            addLogLine(`Done: ${summary}`);
+            if (skippedEmpty > 0) addLogLine(`Skipped ${skippedEmpty} empty entries`);
+            
+            finishProgress('Import Complete', summary);
+            
+            console.log(`[JSON Import] ${summary}, version: ${d.version || 'unknown'}`);
+            status(`JSON imported: ${summary}`);
+            
         } catch (err) {
+            finishProgress('Import Failed', err.message);
             status('Error importing JSON: ' + err.message);
             console.error('[JSON Import] Parse error:', err);
         }
@@ -3980,8 +4193,50 @@ function expCSV() {
 
 function expJSON() {
     const ex = { exportDate: new Date().toISOString(), version: '5.3', settings: { resampleRate, imageOpacity: Math.round(IMAGE_OPACITY * 100), shapeOpacity: Math.round(SHAPE_OPACITY * 100), brushSize, radialResolution }, allData };
-    saveAs(new Blob([JSON.stringify(ex, null, 2)], { type: 'application/json' }), `contour_${new Date().toISOString().slice(0, 10)}.json`);
-    status('JSON exported');
+    
+    // Build descriptive filename: contour_[participants]_[freqs]_[datetime].json
+    // Use participant list (abbreviated if many) and frequency list
+    const participants = Object.keys(allData);
+    let partLabel;
+    if (participants.length === 0) {
+        partLabel = 'empty';
+    } else if (participants.length === 1) {
+        partLabel = participants[0].replace(/\s+/g, '');
+    } else if (participants.length <= 3) {
+        partLabel = participants.map(p => p.replace(/\s+/g, '')).join('+');
+    } else {
+        partLabel = `${participants.length}participants`;
+    }
+    
+    // Collect unique frequencies across all data
+    const freqSet = new Set();
+    for (const p of participants) {
+        for (const t of Object.keys(allData[p])) {
+            for (const fk of Object.keys(allData[p][t])) {
+                const hz = parseFloat(fk);
+                if (!isNaN(hz)) freqSet.add(hz);
+            }
+        }
+    }
+    const sortedHz = Array.from(freqSet).sort((a, b) => a - b);
+    let freqLabel;
+    if (sortedHz.length === 0) {
+        freqLabel = 'nofreqs';
+    } else if (sortedHz.length <= 3) {
+        freqLabel = sortedHz.map(h => `${h}Hz`).join('+');
+    } else {
+        freqLabel = `${sortedHz[0]}-${sortedHz[sortedHz.length - 1]}Hz`;
+    }
+    
+    // Timestamp with date and time (HHMMSS) for uniqueness
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '');
+    
+    const filename = `contour_${partLabel}_${freqLabel}_${dateStr}_${timeStr}.json`;
+    
+    saveAs(new Blob([JSON.stringify(ex, null, 2)], { type: 'application/json' }), filename);
+    status(`JSON exported: ${filename}`);
 }
 
 // ============================================
@@ -5345,7 +5600,29 @@ function init() {
     document.getElementById('shape-opacity-slider').oninput = e => { SHAPE_OPACITY = +e.target.value / 100; document.getElementById('shape-opacity-val').textContent = e.target.value + '%'; redraw(); };
     document.getElementById('radial-res-slider').oninput = e => { radialResolution = +e.target.value; document.getElementById('radial-res-val').textContent = radialResolution; };
     
-    document.getElementById('toggle-draw').onclick = () => { drawingOn = !drawingOn; const b = document.getElementById('toggle-draw'); b.textContent = drawingOn ? '✏️ ON' : '✏️ OFF'; b.className = b.className.replace(drawingOn ? 'bg-red' : 'bg-green', drawingOn ? 'bg-green' : 'bg-red'); canvas.style.cursor = drawingOn ? 'crosshair' : 'default'; };
+    document.getElementById('toggle-draw').onclick = () => { drawingOn = !drawingOn; const b = document.getElementById('toggle-draw'); b.textContent = drawingOn ? '✏️ ON' : '✏️ OFF'; b.className = b.className.replace(drawingOn ? 'bg-red' : 'bg-green', drawingOn ? 'bg-green' : 'bg-red'); canvas.style.cursor = drawingOn ? (eraserMode ? 'cell' : 'crosshair') : 'default'; };
+    
+    // Eraser controls
+    document.getElementById('eraser-btn').onclick = () => {
+        eraserMode = !eraserMode;
+        const btn = document.getElementById('eraser-btn');
+        const sizeGroup = document.getElementById('eraser-size-group');
+        if (eraserMode) {
+            btn.textContent = 'Eraser ON';
+            btn.className = 'px-3 py-1.5 rounded-lg font-bold text-xs bg-purple-600 text-white shadow ring-2 ring-purple-300';
+            sizeGroup.style.display = 'flex';
+            canvas.style.cursor = 'cell';
+        } else {
+            btn.textContent = 'Eraser';
+            btn.className = 'px-3 py-1.5 rounded-lg font-bold text-xs bg-gray-400 text-white shadow';
+            sizeGroup.style.display = 'none';
+            canvas.style.cursor = drawingOn ? 'crosshair' : 'default';
+        }
+    };
+    document.getElementById('eraser-slider').oninput = e => {
+        eraserSize = +e.target.value;
+        document.getElementById('eraser-val').textContent = eraserSize;
+    };
     document.getElementById('undo-btn').onclick = undo;
     document.getElementById('redo-btn').onclick = redo;
     document.getElementById('clear-btn').onclick = () => { if (confirm('Clear all?')) { const d = curData(); if (d) { undoStack.push({ key: dataKey(), data: JSON.parse(JSON.stringify(d)) }); d.red = []; d.blue = []; d.redAvg = null; d.blueAvg = null; } redraw(); updateTable(); updateGallery(); document.getElementById('undo-btn').disabled = false; } };
@@ -5379,6 +5656,9 @@ function init() {
     document.getElementById('cloud-add-other').onclick = addSelectedTracer;
     document.getElementById('auto-cloud-toggle').onclick = toggleAutoCloudSave;
     document.getElementById('cloud-progress-close').onclick = hideCloudProgress;
+    document.getElementById('json-progress-close').onclick = () => {
+        document.getElementById('json-progress-modal').classList.remove('active');
+    };
     
     // Final frequency replacement
     document.getElementById('final-replace-btn').onclick = replaceFinalFrequency;
