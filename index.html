@@ -3020,29 +3020,35 @@ function updateFreqCompositesGallery() {
         // Draw grid first (background)
         drawCompositeGrid(cx, 400);
         
-        // Draw all individual traced shapes at low opacity (NO centroid markers)
+        // Draw all individual traced shapes at low opacity, resampled for
+        // consistent stroke rendering (matches exportFrequencyPNGs pipeline)
         const traceOpacity = 0.25;
+        const galleryResampleN = 1000;
         data.redShapes.forEach(shape => {
-            drawCompositeShape(cx, shape, COLORS.red, scale, traceOpacity, 1.5);
+            if (shape && shape.length >= 3) {
+                drawCompositeShape(cx, resample(shape, galleryResampleN), COLORS.red, scale, traceOpacity, 1.5, true);
+            }
         });
         data.blueShapes.forEach(shape => {
-            drawCompositeShape(cx, shape, COLORS.blue, scale, traceOpacity, 1.5);
+            if (shape && shape.length >= 3) {
+                drawCompositeShape(cx, resample(shape, galleryResampleN), COLORS.blue, scale, traceOpacity, 1.5, true);
+            }
         });
         
         // Draw average shapes at full opacity with thicker lines
         if (data.redAvg) {
-            drawCompositeShape(cx, data.redAvg, '#991b1b', scale, 1, 3);
+            drawCompositeShape(cx, data.redAvg, '#991b1b', scale, 1, 3, true);
         }
         if (data.blueAvg) {
-            drawCompositeShape(cx, data.blueAvg, '#1e3a8a', scale, 1, 3);
+            drawCompositeShape(cx, data.blueAvg, '#1e3a8a', scale, 1, 3, true);
         }
         
         // Draw centroid markers (+ signs) for average shapes
-        if (redCentroid) {
-            drawCentroidMarker(cx, redCentroid, '#991b1b', scale);
+        if (data.redCentroid) {
+            drawCentroidMarker(cx, data.redCentroid, '#991b1b', scale);
         }
-        if (blueCentroid) {
-            drawCentroidMarker(cx, blueCentroid, '#1e3a8a', scale);
+        if (data.blueCentroid) {
+            drawCentroidMarker(cx, data.blueCentroid, '#1e3a8a', scale);
         }
         
         card.appendChild(cv);
@@ -3051,11 +3057,11 @@ function updateFreqCompositesGallery() {
         const statsDiv = document.createElement('div');
         statsDiv.className = 'text-xs space-y-1';
         
-        const redAreaText = data.redAvg ? `area: ${redAvgArea.toFixed(2)}` : '';
-        const blueAreaText = data.blueAvg ? `area: ${blueAvgArea.toFixed(2)}` : '';
+        const redAreaText = data.redAvg && data.redArea ? `area: ${data.redArea.toFixed(2)}` : '';
+        const blueAreaText = data.blueAvg && data.blueArea ? `area: ${data.blueArea.toFixed(2)}` : '';
         
-        const redCentroidText = redCentroid ? ` | centroid: (${redCentroid.x.toFixed(2)}, ${redCentroid.y.toFixed(2)})` : '';
-        const blueCentroidText = blueCentroid ? ` | centroid: (${blueCentroid.x.toFixed(2)}, ${blueCentroid.y.toFixed(2)})` : '';
+        const redCentroidText = data.redCentroid ? ` | centroid: (${data.redCentroid.x.toFixed(2)}, ${data.redCentroid.y.toFixed(2)})` : '';
+        const blueCentroidText = data.blueCentroid ? ` | centroid: (${data.blueCentroid.x.toFixed(2)}, ${data.blueCentroid.y.toFixed(2)})` : '';
         
         statsDiv.innerHTML = `
             <p class="font-bold text-emerald-700">${hzKey} Hz</p>
@@ -3441,7 +3447,7 @@ function updateCircleApproxAnalysis() {
     }
 }
 
-function drawCompositeShape(cx, shape, color, scale, opacity, lineWidth) {
+function drawCompositeShape(cx, shape, color, scale, opacity, lineWidth, close) {
     if (!shape || shape.length < 2) return;
     
     cx.save();
@@ -3460,6 +3466,7 @@ function drawCompositeShape(cx, shape, color, scale, opacity, lineWidth) {
         cx.lineTo(pt.x * scale, pt.y * scale);
     }
     
+    if (close) cx.closePath();
     cx.stroke();
     cx.restore();
 }
